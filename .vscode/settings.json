@@ -1,0 +1,30 @@
+{
+	// "editor.formatOnSave": false, // Disable format on save globally
+	"[python]": {
+		"editor.formatOnSave": true // Enable format on save only for Python files
+	},
+	"git.ignoreLimitWarning": true,
+	"material-icon-theme.files.associations": {
+		"migrations": "tools"
+	},
+	"material-icon-theme.folders.associations": {
+		"westProjectBinanceGetTrades": "functions",
+		"west-project-binance-rust": "functions",
+		"py_types": "Interface",
+		"aws_clients": "Client",
+		"azure_clients": "Client"
+	},
+	"python.analysis.include": ["src/**/*", "notebooks/**/*"],
+	"python.analysis.typeCheckingMode": "basic",
+	"editor.wordWrapColumn": 88,
+	"editor.wordWrap": "wordWrapColumn",
+	"python.analysis.extraPaths": [
+		// "src"
+		"notebooks"
+	],
+	"python.analysis.autoSearchPaths": false,
+	"python.defaultInterpreterPath": "/home/dolores/Documents/matheus-ferreira/TCC-IA/venv/bin/python3",
+	"jupyter..kernelPickerType": "onlyAvailable",
+	"jupyter.jupyterServerType": "local"
+
+}

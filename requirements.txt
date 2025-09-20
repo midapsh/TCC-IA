@@ -1,0 +1,18 @@
+# Scraping
+requests
+# Data Analysis
+numpy
+pandas
+# Models
+scikit-learn
+xgboost
+# Plots
+matplotlib
+plotly
+kaleido
+# Cute stuff
+tqdm
+# Jupyter
+ipykernel
+jupyter
+notebook

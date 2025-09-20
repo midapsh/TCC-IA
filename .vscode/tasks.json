@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "set-env:dev",
+			"type": "shell",
+			"command": "cat ${workspaceFolder}/configs/dev.conf > .env",
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "set-env:prod",
+			"type": "shell",
+			"command": "cat ${workspaceFolder}/configs/prod.conf > .env",
+			"problemMatcher": [],
+			"group": "build"
+		}
+	]
+}
