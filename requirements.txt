@@ -3,6 +3,7 @@ requests
 # Data Analysis
 numpy
 pandas
+scipy
 # Models
 scikit-learn
 xgboost
@@ -15,3 +16,5 @@ tqdm
 ipykernel
 jupyter
 notebook
+# Wavelet analysis
+PyWavelets
