@@ -8,9 +8,13 @@
 data/*
 !data/.gitkeep
 
+# Images
+images/*
+!images/.gitkeep
+
 # HTML
 html/*
-!data/.gitkeep
+!html/.gitkeep
 
 # Password stuff
 secrets/*

@@ -8,27 +8,11 @@
 			"name": "Python: Unimed (Dev)",
 			"type": "debugpy",
 			"request": "launch",
-			"program": "${workspaceFolder}/src/main.py",
+			"program": "${workspaceFolder}/notebooks/plot_monthly.py",
 			"console": "integratedTerminal",
 			"justMyCode": false,
 			"preLaunchTask": "set-env:dev",
 			"args": [
-				"event_unimed",
-				"{}"
-			],
-			"envFile": "${workspaceFolder}/.env"
-		},
-		{
-			"name": "Python: Unimed (Prod)",
-			"type": "debugpy",
-			"request": "launch",
-			"program": "${workspaceFolder}/src/main.py",
-			"console": "integratedTerminal",
-			"justMyCode": false,
-			"preLaunchTask": "set-env:prod",
-			"args": [
-				"event_unimed",
-				"{}"
 			],
 			"envFile": "${workspaceFolder}/.env"
 		}
