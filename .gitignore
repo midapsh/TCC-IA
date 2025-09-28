@@ -6,13 +6,13 @@
 # Venv Stuff
 # Data stuff
 data/*
-data_extracted/*
-data_extracted_final/*
-
-test.py
 !data/.gitkeep
 
-# Data stuff
+# HTML
+html/*
+!data/.gitkeep
+
+# Password stuff
 secrets/*
 !secrets/.gitkeep
 
@@ -28,9 +28,7 @@ configs/*
 # Scripts stuff
 scripts/*
 !scripts/.gitkeep
-!scripts/base.sh
-!scripts/prod_run_historical.sh
-!scripts/prod_run.sh
+!scripts/mount_db_on_memory.sh
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

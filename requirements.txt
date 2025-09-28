@@ -8,8 +8,7 @@ scikit-learn
 xgboost
 # Plots
 matplotlib
-plotly
-kaleido
+plotly[kaleido]
 # Cute stuff
 tqdm
 # Jupyter
