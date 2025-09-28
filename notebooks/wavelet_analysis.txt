@@ -1,0 +1,425 @@
+============================================================
+Analyzing dimension with wavelets: precipitacao_total_horario
+============================================================
+Original signal shape: (210432,)
+Signal range: 0.0000 to 55.6000
+NaN count: 22642 (10.76%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Hourly Precipitation:
+  Signal length: 187790 samples
+  Signal statistics:
+    Mean: 0.1403
+    Std Dev: 1.1730
+    Skewness: 17.5784
+    Kurtosis: 444.9677
+  Dominant periods:
+    Low-frequency: 886.15 hours (36.92 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: pressao_atmosferica_ao_nivel_da_estacao_horaria
+============================================================
+Original signal shape: (210432,)
+Signal range: 929.6000 to 956.5000
+NaN count: 21821 (10.37%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Atmospheric Pressure (Station Level):
+  Signal length: 188611 samples
+  Signal statistics:
+    Mean: 943.2551
+    Std Dev: 3.4845
+    Skewness: 0.1224
+    Kurtosis: -0.1919
+  Dominant periods:
+    Low-frequency: 517.62 hours (21.57 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: pressao_atmosferica_max_na_hora_ant
+============================================================
+Original signal shape: (210432,)
+Signal range: 930.0000 to 965.4000
+NaN count: 22070 (10.49%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Max Atmospheric Pressure (Previous Hour):
+  Signal length: 188362 samples
+  Signal statistics:
+    Mean: 943.5258
+    Std Dev: 3.4644
+    Skewness: 0.1313
+    Kurtosis: -0.1595
+  Dominant periods:
+    Low-frequency: 517.62 hours (21.57 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: pressao_atmosferica_min_na_hora_ant
+============================================================
+Original signal shape: (210432,)
+Signal range: 929.4000 to 956.4000
+NaN count: 22070 (10.49%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Min Atmospheric Pressure (Previous Hour):
+  Signal length: 188362 samples
+  Signal statistics:
+    Mean: 943.0039
+    Std Dev: 3.5003
+    Skewness: 0.1157
+    Kurtosis: -0.2066
+  Dominant periods:
+    Low-frequency: 517.62 hours (21.57 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: radiacao_global
+============================================================
+Original signal shape: (210432,)
+Signal range: 0.0000 to 5714.2000
+NaN count: 105305 (50.04%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Global Radiation:
+  Signal length: 105127 samples
+  Signal statistics:
+    Mean: 1261.0488
+    Std Dev: 1027.6035
+    Skewness: 0.4847
+    Kurtosis: -0.8992
+  Dominant periods:
+    Low-frequency: 14.77 hours (0.62 days)
+    High-frequency: 13.47 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: temperatura_do_ar_bulbo_seco_horaria
+============================================================
+Original signal shape: (210432,)
+Signal range: 2.1000 to 41.0000
+NaN count: 21632 (10.28%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Air Temperature (Dry Bulb):
+  Signal length: 188800 samples
+  Signal statistics:
+    Mean: 21.8445
+    Std Dev: 5.0223
+    Skewness: 0.1518
+    Kurtosis: -0.0526
+  Dominant periods:
+    Low-frequency: 886.15 hours (36.92 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: temperatura_do_ponto_de_orvalho
+============================================================
+Original signal shape: (210432,)
+Signal range: -6.6000 to 28.0000
+NaN count: 31433 (14.94%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Dew Point Temperature:
+  Signal length: 178999 samples
+  Signal statistics:
+    Mean: 15.4750
+    Std Dev: 4.2394
+    Skewness: -0.5992
+    Kurtosis: 0.0407
+  Dominant periods:
+    Low-frequency: 886.15 hours (36.92 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: temperatura_maxima_na_hora_ant
+============================================================
+Original signal shape: (210432,)
+Signal range: 2.3000 to 41.6000
+NaN count: 22034 (10.47%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Max Temperature (Previous Hour):
+  Signal length: 188398 samples
+  Signal statistics:
+    Mean: 22.4947
+    Std Dev: 5.2001
+    Skewness: 0.1495
+    Kurtosis: -0.1859
+  Dominant periods:
+    Low-frequency: 886.15 hours (36.92 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: temperatura_minima_na_hora_ant
+============================================================
+Original signal shape: (210432,)
+Signal range: 0.8000 to 40.4000
+NaN count: 22035 (10.47%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Min Temperature (Previous Hour):
+  Signal length: 188397 samples
+  Signal statistics:
+    Mean: 21.2164
+    Std Dev: 4.8226
+    Skewness: 0.1263
+    Kurtosis: 0.0650
+  Dominant periods:
+    Low-frequency: 886.15 hours (36.92 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: temperatura_orvalho_max_na_hora_ant
+============================================================
+Original signal shape: (210432,)
+Signal range: -6.2000 to 29.1000
+NaN count: 32259 (15.33%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Max Dew Point (Previous Hour):
+  Signal length: 178173 samples
+  Signal statistics:
+    Mean: 15.9816
+    Std Dev: 4.2164
+    Skewness: -0.5213
+    Kurtosis: -0.0825
+  Dominant periods:
+    Low-frequency: 886.15 hours (36.92 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: temperatura_orvalho_min_na_hora_ant
+============================================================
+Original signal shape: (210432,)
+Signal range: -7.5000 to 26.2000
+NaN count: 32259 (15.33%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Min Dew Point (Previous Hour):
+  Signal length: 178173 samples
+  Signal statistics:
+    Mean: 14.9609
+    Std Dev: 4.2713
+    Skewness: -0.6696
+    Kurtosis: 0.1579
+  Dominant periods:
+    Low-frequency: 886.15 hours (36.92 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: umidade_relativa_max_na_hora_ant
+============================================================
+Original signal shape: (210432,)
+Signal range: 12.0000 to 100.0000
+NaN count: 32211 (15.31%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Max Relative Humidity (Previous Hour):
+  Signal length: 178221 samples
+  Signal statistics:
+    Mean: 73.1133
+    Std Dev: 18.8077
+    Skewness: -0.6147
+    Kurtosis: -0.4329
+  Dominant periods:
+    Low-frequency: 691.42 hours (28.81 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: umidade_relativa_min_na_hora_ant
+============================================================
+Original signal shape: (210432,)
+Signal range: 0.0000 to 100.0000
+NaN count: 32213 (15.31%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Min Relative Humidity (Previous Hour):
+  Signal length: 178219 samples
+  Signal statistics:
+    Mean: 66.8797
+    Std Dev: 20.3969
+    Skewness: -0.3547
+    Kurtosis: -0.8193
+  Dominant periods:
+    Low-frequency: 663.41 hours (27.64 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: umidade_relativa_do_ar_horaria
+============================================================
+Original signal shape: (210432,)
+Signal range: 11.0000 to 100.0000
+NaN count: 31433 (14.94%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Hourly Relative Humidity:
+  Signal length: 178999 samples
+  Signal statistics:
+    Mean: 70.0918
+    Std Dev: 19.7489
+    Skewness: -0.4854
+    Kurtosis: -0.6591
+  Dominant periods:
+    Low-frequency: 663.41 hours (27.64 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: vento_direcao_horaria
+============================================================
+Original signal shape: (210432,)
+Signal range: 1.0000 to 360.0000
+NaN count: 22306 (10.60%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Wind Direction:
+  Signal length: 188126 samples
+  Signal statistics:
+    Mean: 158.9937
+    Std Dev: 105.0239
+    Skewness: 0.5651
+    Kurtosis: -0.9680
+  Dominant periods:
+    Low-frequency: 517.62 hours (21.57 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: vento_rajada_maxima
+============================================================
+Original signal shape: (210432,)
+Signal range: 0.0000 to 24.7000
+NaN count: 22354 (10.62%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Max Wind Gust:
+  Signal length: 188078 samples
+  Signal statistics:
+    Mean: 4.4974
+    Std Dev: 2.4905
+    Skewness: 0.3357
+    Kurtosis: 0.6232
+  Dominant periods:
+    Low-frequency: 886.15 hours (36.92 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Analyzing dimension with wavelets: vento_velocidade_horaria
+============================================================
+Original signal shape: (210432,)
+Signal range: 0.0000 to 10.2000
+NaN count: 22302 (10.60%)
+
+Performing low-frequency wavelet analysis (morl)...
+Performing high-frequency wavelet analysis (cmor1.5-1.0)...
+Performing general wavelet analysis (mexh)...
+
+Wavelet Analysis Summary for Wind Speed:
+  Signal length: 188130 samples
+  Signal statistics:
+    Mean: 1.3867
+    Std Dev: 0.9756
+    Skewness: 0.4706
+    Kurtosis: 0.1800
+  Dominant periods:
+    Low-frequency: 886.15 hours (36.92 days)
+    High-frequency: 24.00 hours
+    General: 2880.00 hours (120.00 days)
+  Plots saved to respective folders in: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+============================================================
+Creating wavelet analysis summary report...
+============================================================
+Summary report saved to: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis/wavelet_summary_report.html
+
+============================================================
+WAVELET ANALYSIS COMPLETE
+============================================================
+Successfully analyzed: 17/17 dimensions
+All plots saved to: /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis
+
+Folder structure:
+  /home/dolores/Documents/matheus-ferreira/TCC-IA/html/wavelet_analysis/
+    ├── low_frequency/    (Low-frequency analysis using morl)
+    ├── high_frequency/   (High-frequency analysis using cmor1.5-1.0)
+    ├── general/          (General analysis using mexh)
+    └── wavelet_summary_report.html
