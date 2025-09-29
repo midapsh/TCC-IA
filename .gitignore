@@ -9,9 +9,14 @@
 models/*
 !models/.gitkeep
 
+
 # Data stuff
 data/*
 !data/.gitkeep
+sarima_analysis/*
+!sarima_analysis/.gitkeep
+sarima_analysis_optimized/*
+!sarima_analysis_optimized/.gitkeep
 
 # Images
 images/*
@@ -38,6 +43,8 @@ configs/*
 scripts/*
 !scripts/.gitkeep
 !scripts/mount_db_on_memory.sh
+!scripts/unmount_db_on_memory.sh
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

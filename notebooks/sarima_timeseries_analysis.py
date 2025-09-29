@@ -1,41 +1,39 @@
-#!/usr/bin/env python3
+# Create optimized SARIMA analysis script with memory management and multi-threading
 """
-SARIMA Time Series Analysis Script
-Based on frequency_analysis.py structure
-Performs comprehensive time series analysis including:
-- SARIMA model fitting
-- Dickey-Fuller tests
-- ACF/PACF analysis
-- Distribution analysis (skewness, kurtosis, etc.)
-- Multimodal distribution detection
-- Frequency component analysis
+Optimized SARIMA Time Series Analysis Script
+- Memory efficient with garbage collection
+- Multi-threaded GaussianMixture computations
+- Batch processing to reduce memory footprint
 """
 
-from os import makedirs
-from pathlib import Path
+import gc
+import os
+import sys
 import pickle
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
+from os import makedirs
+from pathlib import Path
 
-from plotly.subplots import make_subplots
-from scipy import stats
-from scipy.signal import find_peaks
-from sklearn.mixture import GaussianMixture
+import matplotlib
+
+matplotlib.use("Agg")  # Use non-interactive backend to save memory
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import seaborn as sns
-
-# Statistical and time series imports
-from statsmodels.tsa.stattools import adfuller, acf, pacf
-from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.tsa.statespace.sarimax import SARIMAX
-from statsmodels.stats.diagnostic import acorr_ljungbox
 import pmdarima as pm
+from plotly.subplots import make_subplots
+from scipy import stats
+from sklearn.mixture import GaussianMixture
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from statsmodels.stats.diagnostic import acorr_ljungbox
+from statsmodels.tsa.stattools import acf, adfuller, pacf
 
 warnings.filterwarnings("ignore")
 
-# Configuration based on frequency_analysis.py
+# Configuration
 DIMS = [
     "precipitacao_total_horario",
     "pressao_atmosferica_ao_nivel_da_estacao_horaria",
@@ -77,21 +75,34 @@ DIMENSION_NAMES = {
 }
 
 # Output folders
-BASE_OUTPUT_FOLDER = Path(
-    "/home/dolores/Documents/matheus-ferreira/TCC-IA/models/sarima_analysis"
-)
+BASE_OUTPUT_FOLDER = Path("sarima_analysis")
 MODELS_FOLDER = BASE_OUTPUT_FOLDER / "models"
 PLOTS_FOLDER = BASE_OUTPUT_FOLDER / "plots"
 TABLES_FOLDER = BASE_OUTPUT_FOLDER / "tables"
 MULTIMODAL_FOLDER = BASE_OUTPUT_FOLDER / "multimodal_analysis"
 
-# Create all necessary folders
+# Create folders
 for folder in [MODELS_FOLDER, PLOTS_FOLDER, TABLES_FOLDER, MULTIMODAL_FOLDER]:
     makedirs(folder, exist_ok=True)
 
+# Memory management settings
+MAX_WORKERS = 4  # Number of threads for parallel processing
+CHUNK_SIZE = 10000  # Process data in chunks to reduce memory
 
-class SARIMAAnalyzer:
-    """Complete SARIMA analysis for time series data"""
+
+def fit_gmm_component(data_array, n_components):
+    """Fit a single GMM model - used for parallel processing"""
+    try:
+        gmm = GaussianMixture(n_components=n_components, random_state=42, max_iter=100)
+        gmm.fit(data_array)
+        return n_components, gmm.bic(data_array), gmm.aic(data_array)
+    except Exception as e:
+        print(f"Error fitting GMM with {n_components} components: {e}")
+        return n_components, float("inf"), float("inf")
+
+
+class OptimizedSARIMAAnalyzer:
+    """Memory-optimized SARIMA analyzer with multi-threading"""
 
     def __init__(self, data, dimension_name, friendly_name):
         self.data = data
@@ -100,11 +111,30 @@ class SARIMAAnalyzer:
         self.model = None
         self.results = {}
         self.multimodal_info = {}
+        self.clean_data_series = None
+
+    def __del__(self):
+        """Cleanup when object is destroyed"""
+        self.cleanup_memory()
+
+    def cleanup_memory(self):
+        """Force garbage collection and clear unnecessary data"""
+        # Clear large objects
+        if hasattr(self, "data"):
+            del self.data
+        if hasattr(self, "model") and self.model is not None:
+            del self.model
+        # Force garbage collection
+        gc.collect()
 
     def clean_data(self):
         """Clean and prepare data for analysis"""
         # Remove NaN values
         self.clean_data_series = self.data.dropna()
+
+        # Clear original data to save memory
+        del self.data
+        gc.collect()
 
         # Check for sufficient data
         if len(self.clean_data_series) < 100:
@@ -112,25 +142,34 @@ class SARIMAAnalyzer:
                 f"Insufficient data for {self.dimension_name}: {len(self.clean_data_series)} points"
             )
 
-        print(
-            f"Data cleaned: {len(self.clean_data_series)} valid points from {len(self.data)} total"
-        )
+        # If data is too large, downsample for some analyses
+        if len(self.clean_data_series) > 50000:
+            print(
+                f"Large dataset detected ({len(self.clean_data_series)} points). Will use sampling for some analyses."
+            )
+
+        print(f"Data cleaned: {len(self.clean_data_series)} valid points")
         return self.clean_data_series
 
     def perform_adf_test(self):
         """Perform Augmented Dickey-Fuller test"""
-        adf_result = adfuller(self.clean_data_series, autolag="AIC")
+        # Use a subset if data is too large
+        test_data = self.clean_data_series
+        if len(test_data) > 10000:
+            test_data = self.clean_data_series.iloc[:10000]
+
+        adf_result = adfuller(test_data, autolag="AIC")
 
         self.results["adf"] = {
-            "statistic": adf_result[0],
-            "p_value": adf_result[1],
-            "used_lag": adf_result[2],
-            "n_obs": adf_result[3],
-            "critical_values": adf_result[4] if len(adf_result) == 5 else None,
+            "statistic": float(adf_result[0]),
+            "p_value": float(adf_result[1]),
+            "used_lag": int(adf_result[2]),
+            "n_obs": int(adf_result[3]),
+            "critical_values": adf_result[4],
             "is_stationary": adf_result[1] < 0.05,
         }
 
-        # Create ADF results table
+        # Save results
         adf_df = pd.DataFrame(
             {
                 "Metric": [
@@ -144,100 +183,120 @@ class SARIMAAnalyzer:
                     "Is Stationary (p<0.05)",
                 ],
                 "Value": [
-                    self.results.get("adf", {}).get("statistic"),
-                    self.results.get("adf", {}).get("p_value")
-                    or self.results.get("adf", {}).get("pvalue"),
-                    self.results.get("adf", {}).get("used_lag")
-                    or self.results.get("adf", {}).get("lags"),
-                    self.results.get("adf", {}).get("n_obs")
-                    or self.results.get("adf", {}).get("nobs"),
-                    (self.results.get("adf", {}).get("critical_values") or {}).get(
-                        "1%"
-                    ),
-                    (self.results.get("adf", {}).get("critical_values") or {}).get(
-                        "5%"
-                    ),
-                    (self.results.get("adf", {}).get("critical_values") or {}).get(
-                        "10%"
-                    ),
-                    self.results.get("adf", {}).get("is_stationary", False),
+                    self.results["adf"]["statistic"],
+                    self.results["adf"]["p_value"],
+                    self.results["adf"]["used_lag"],
+                    self.results["adf"]["n_obs"],
+                    self.results["adf"]["critical_values"]["1%"],
+                    self.results["adf"]["critical_values"]["5%"],
+                    self.results["adf"]["critical_values"]["10%"],
+                    self.results["adf"]["is_stationary"],
                 ],
             }
         )
-
-        # Save ADF results
-        _ = adf_df.to_csv(
+        adf_df.to_csv(
             TABLES_FOLDER / f"{self.dimension_name}_adf_test.csv", index=False
         )
 
         print(
             f"ADF Test - Stationary: {self.results['adf']['is_stationary']} (p-value: {self.results['adf']['p_value']:.4f})"
         )
+
+        # Clean up
+        del adf_df
+        gc.collect()
+
         return self.results["adf"]
 
     def calculate_statistics(self):
         """Calculate comprehensive statistics"""
+        # Convert to numpy array for efficiency
+        data_array = np.array(self.clean_data_series)
+
         self.results["statistics"] = {
-            "mean": np.mean(self.clean_data_series),
-            "median": np.median(self.clean_data_series),
-            "mode": stats.mode(self.clean_data_series, keepdims=True)[0][0],
-            "std_dev": np.std(self.clean_data_series),
-            "variance": np.var(self.clean_data_series),
-            "skewness": stats.skew(self.clean_data_series),
-            "kurtosis": stats.kurtosis(self.clean_data_series),
-            "min": np.min(self.clean_data_series),
-            "max": np.max(self.clean_data_series),
-            "q25": np.percentile(self.clean_data_series, 25),
-            "q75": np.percentile(self.clean_data_series, 75),
-            "iqr": np.percentile(self.clean_data_series, 75)
-            - np.percentile(self.clean_data_series, 25),
+            "mean": float(np.mean(data_array)),
+            "median": float(np.median(data_array)),
+            "mode": float(stats.mode(data_array, keepdims=True)[0][0]),
+            "std_dev": float(np.std(data_array)),
+            "variance": float(np.var(data_array)),
+            "skewness": float(stats.skew(data_array)),
+            "kurtosis": float(stats.kurtosis(data_array)),
+            "min": float(np.min(data_array)),
+            "max": float(np.max(data_array)),
+            "q25": float(np.percentile(data_array, 25)),
+            "q75": float(np.percentile(data_array, 75)),
+            "iqr": float(np.percentile(data_array, 75) - np.percentile(data_array, 25)),
         }
 
-        # Create statistics table
+        # Save statistics
         stats_df = pd.DataFrame(self.results["statistics"], index=[0]).T
         stats_df.columns = ["Value"]
-        _ = stats_df.to_csv(TABLES_FOLDER / f"{self.dimension_name}_statistics.csv")
+        stats_df.to_csv(TABLES_FOLDER / f"{self.dimension_name}_statistics.csv")
 
         print(
-            f"Statistics calculated - Skewness: {self.results['statistics']['skewness']:.3f}, Kurtosis: {self.results['statistics']['kurtosis']:.3f}"
+            f"Statistics - Skewness: {self.results['statistics']['skewness']:.3f}, Kurtosis: {self.results['statistics']['kurtosis']:.3f}"
         )
+
+        # Clean up
+        del data_array, stats_df
+        gc.collect()
+
         return self.results["statistics"]
 
     def detect_frequency_components(self):
-        """Detect low and high frequency components"""
-        # Use FFT to identify frequency components
-        fft_vals = np.fft.fft(self.clean_data_series)
-        freqs = np.fft.fftfreq(len(self.clean_data_series))
+        """Detect low and high frequency components with memory optimization"""
+        # Use subset for FFT if data is too large
+        fft_data = self.clean_data_series
+        if len(fft_data) > 20000:
+            fft_data = self.clean_data_series.iloc[:20000]
 
-        # Get power spectrum
+        # FFT analysis
+        fft_vals = np.fft.fft(fft_data)
+        freqs = np.fft.fftfreq(len(fft_data))
         power = np.abs(fft_vals) ** 2
 
-        # Identify significant frequencies (top 10% power)
-        threshold = np.percentile(power[freqs > 0], 90)
-        significant_freqs = freqs[power > threshold]
+        # Find significant frequencies
+        positive_freqs = freqs > 0
+        if np.sum(positive_freqs) > 0:
+            threshold = np.percentile(power[positive_freqs], 90)
+            significant_mask = power > threshold
+            significant_freqs = freqs[significant_mask]
 
-        # Classify frequencies
-        low_freq_threshold = 1 / 168  # Weekly or longer periods (168 hours = 1 week)
-        high_freq_threshold = 1 / 12  # Sub-daily periods (12 hours)
+            # Classify frequencies
+            low_freq_threshold = 1 / 168  # Weekly
+            high_freq_threshold = 1 / 12  # Sub-daily
 
-        low_freqs = significant_freqs[np.abs(significant_freqs) < low_freq_threshold]
-        high_freqs = significant_freqs[np.abs(significant_freqs) > high_freq_threshold]
-        mid_freqs = significant_freqs[
-            (np.abs(significant_freqs) >= low_freq_threshold)
-            & (np.abs(significant_freqs) <= high_freq_threshold)
-        ]
+            low_freqs = significant_freqs[
+                np.abs(significant_freqs) < low_freq_threshold
+            ]
+            high_freqs = significant_freqs[
+                np.abs(significant_freqs) > high_freq_threshold
+            ]
+            mid_freqs = significant_freqs[
+                (np.abs(significant_freqs) >= low_freq_threshold)
+                & (np.abs(significant_freqs) <= high_freq_threshold)
+            ]
+
+            # Find dominant frequency
+            dominant_idx = (
+                np.argmax(power[1 : len(power) // 2]) + 1 if len(freqs) > 1 else 0
+            )
+            dominant_freq = freqs[dominant_idx] if dominant_idx > 0 else 0
+        else:
+            low_freqs = high_freqs = mid_freqs = []
+            dominant_freq = 0
 
         self.results["frequency_components"] = {
             "low_frequency_count": len(low_freqs),
             "high_frequency_count": len(high_freqs),
             "mid_frequency_count": len(mid_freqs),
-            "dominant_frequency": (
-                freqs[np.argmax(power[1 : len(power) // 2]) + 1]
-                if len(freqs) > 1
-                else 0
-            ),
-            "low_freq_periods_hours": [1 / f for f in low_freqs if f != 0],
-            "high_freq_periods_hours": [1 / f for f in high_freqs if f != 0],
+            "dominant_frequency": float(dominant_freq),
+            "low_freq_periods_hours": [1 / f for f in low_freqs if f != 0][
+                :10
+            ],  # Limit to 10
+            "high_freq_periods_hours": [1 / f for f in high_freqs if f != 0][
+                :10
+            ],  # Limit to 10
         }
 
         # Save frequency analysis
@@ -250,26 +309,20 @@ class SARIMAAnalyzer:
                     "Dominant Frequency",
                 ],
                 "Count": [
-                    self.results.get("frequency_components", {}).get(
-                        "low_frequency_count"
-                    ),
-                    self.results.get("frequency_components", {}).get(
-                        "mid_frequency_count"
-                    ),
-                    self.results.get("frequency_components", {}).get(
-                        "high_frequency_count"
-                    ),
+                    self.results["frequency_components"]["low_frequency_count"],
+                    self.results["frequency_components"]["mid_frequency_count"],
+                    self.results["frequency_components"]["high_frequency_count"],
                     1,
                 ],
                 "Description": [
-                    f"Periods > 168 hours (weekly+)",
-                    f"Periods 12-168 hours (sub-weekly)",
-                    f"Periods < 12 hours (sub-daily)",
-                    f"Frequency: {self.results.get("frequency_components", {}).get('dominant_frequency'):.6f}",
+                    "Periods > 168 hours (weekly+)",
+                    "Periods 12-168 hours (sub-weekly)",
+                    "Periods < 12 hours (sub-daily)",
+                    f"Frequency: {dominant_freq:.6f}",
                 ],
             }
         )
-        _ = freq_df.to_csv(
+        freq_df.to_csv(
             TABLES_FOLDER / f"{self.dimension_name}_frequency_components.csv",
             index=False,
         )
@@ -277,31 +330,48 @@ class SARIMAAnalyzer:
         print(
             f"Frequency components - Low: {len(low_freqs)}, Mid: {len(mid_freqs)}, High: {len(high_freqs)}"
         )
+
+        # Clean up
+        del fft_vals, freqs, power, freq_df
+        gc.collect()
+
         return self.results["frequency_components"]
 
     def detect_multimodal_distribution(self):
-        """Detect and analyze multimodal distributions"""
-        data_array = np.array(self.clean_data_series).reshape(-1, 1)
+        """Detect multimodal distributions using parallel processing"""
+        # Sample data if too large
+        sample_data = self.clean_data_series
+        if len(sample_data) > 10000:
+            sample_data = self.clean_data_series.sample(n=10000, random_state=42)
 
-        # Try different numbers of components
+        data_array = np.array(sample_data).reshape(-1, 1)
+
+        # Parallel GMM fitting
         n_components_range = range(1, 6)
-        bic_scores = []
-        aic_scores = []
 
-        for n_components in n_components_range:
-            gmm = GaussianMixture(n_components=n_components, random_state=42)
-            gmm.fit(data_array)
-            bic_scores.append(gmm.bic(data_array))
-            aic_scores.append(gmm.aic(data_array))
+        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            # Submit all GMM fitting tasks
+            futures = {
+                executor.submit(fit_gmm_component, data_array, n): n
+                for n in n_components_range
+            }
+
+            results = {}
+            for future in as_completed(futures):
+                n_comp, bic, aic = future.result()
+                results[n_comp] = {"bic": bic, "aic": aic}
 
         # Find optimal number of components
+        bic_scores = [results[n]["bic"] for n in sorted(results.keys())]
         optimal_components = np.argmin(bic_scores) + 1
 
         if optimal_components > 1:
             print(f"Multimodal distribution detected with {optimal_components} modes")
 
-            # Fit GMM with optimal components
-            gmm = GaussianMixture(n_components=optimal_components, random_state=42)
+            # Fit final GMM with optimal components
+            gmm = GaussianMixture(
+                n_components=optimal_components, random_state=42, max_iter=100
+            )
             gmm.fit(data_array)
 
             # Get predictions
@@ -309,27 +379,28 @@ class SARIMAAnalyzer:
 
             # Find transition points
             transition_points = []
-            for i in range(1, len(labels)):
+            for i in range(1, min(len(labels), 1000)):  # Limit transition point search
                 if labels[i] != labels[i - 1]:
                     transition_points.append(i)
 
             self.multimodal_info = {
                 "is_multimodal": True,
-                "n_modes": optimal_components,
-                "transition_points": transition_points,
+                "n_modes": int(optimal_components),
+                "transition_points": transition_points[:20],  # Limit stored transitions
                 "mode_means": gmm.means_.flatten().tolist(),
                 "mode_weights": gmm.weights_.tolist(),
-                "labels": labels,
             }
 
-            # Save multimodal segments
+            # Save limited multimodal segments
             if len(transition_points) > 0:
-                self._save_multimodal_segments(labels, transition_points)
+                self._save_multimodal_segments_limited(
+                    labels, transition_points[:5]
+                )  # Only first 5
         else:
             print("Unimodal distribution detected")
             self.multimodal_info = {"is_multimodal": False, "n_modes": 1}
 
-        # Save multimodal analysis results
+        # Save multimodal analysis
         multimodal_df = pd.DataFrame(
             {
                 "Property": [
@@ -344,181 +415,116 @@ class SARIMAAnalyzer:
                 ],
             }
         )
-        _ = multimodal_df.to_csv(
+        multimodal_df.to_csv(
             TABLES_FOLDER / f"{self.dimension_name}_multimodal_analysis.csv",
             index=False,
         )
 
         self.results["multimodal_info"] = self.multimodal_info
+
+        # Clean up
+        del data_array, multimodal_df
+        if optimal_components > 1:
+            del gmm, labels
+        gc.collect()
+
         return self.multimodal_info
 
-    def _save_multimodal_segments(self, labels, transition_points):
-        """Save data segments before and after multimodal transitions"""
+    def _save_multimodal_segments_limited(self, labels, transition_points):
+        """Save limited multimodal segments to conserve memory"""
         dim_folder = MULTIMODAL_FOLDER / self.dimension_name
         makedirs(dim_folder, exist_ok=True)
 
-        # Add start and end points
-        segments = [0] + transition_points + [len(labels)]
+        # Only process first few segments
+        segments = [0] + transition_points[:5] + [len(labels)]
 
-        for i in range(len(segments) - 1):
+        for i in range(min(len(segments) - 1, 3)):  # Max 3 segments
             start_idx = segments[i]
             end_idx = segments[i + 1]
 
-            segment_data = self.clean_data_series.iloc[start_idx:end_idx]
+            # Use subset of segment data
+            segment_size = min(end_idx - start_idx, 1000)
+            segment_data = self.clean_data_series.iloc[
+                start_idx : start_idx + segment_size
+            ]
 
-            # Save segment statistics
+            # Calculate and save statistics
             segment_stats = {
                 "segment": i + 1,
                 "start_index": start_idx,
-                "end_index": end_idx,
-                "length": end_idx - start_idx,
-                "mean": np.mean(segment_data),
-                "std": np.std(segment_data),
-                "skewness": stats.skew(segment_data),
-                "kurtosis": stats.kurtosis(segment_data),
+                "end_index": start_idx + segment_size,
+                "length": segment_size,
+                "mean": float(np.mean(segment_data)),
+                "std": float(np.std(segment_data)),
+                "skewness": float(stats.skew(segment_data)),
+                "kurtosis": float(stats.kurtosis(segment_data)),
             }
 
-            # Save segment data
-            _ = pd.DataFrame(segment_stats, index=[0]).to_csv(
+            pd.DataFrame(segment_stats, index=[0]).to_csv(
                 dim_folder / f"segment_{i+1}_statistics.csv", index=False
             )
 
-            # Create segment plot
-            self._plot_segment(segment_data, i + 1, dim_folder)
-
-    def _plot_segment(self, segment_data, segment_num, output_folder):
-        """Plot individual segment with distribution"""
-        fig = make_subplots(
-            rows=2,
-            cols=2,
-            subplot_titles=(
-                f"Segment {segment_num} Time Series",
-                f"Segment {segment_num} Distribution",
-                f"Segment {segment_num} ACF",
-                f"Segment {segment_num} Q-Q Plot",
-            ),
-        )
-
-        # Time series
-        fig.add_trace(
-            go.Scatter(
-                x=np.arange(len(segment_data)),
-                y=segment_data.values,
-                mode="lines",
-                name="Time Series",
-            ),
-            row=1,
-            col=1,
-        )
-
-        # Distribution
-        fig.add_trace(
-            go.Histogram(x=segment_data.values, nbinsx=30, name="Distribution"),
-            row=1,
-            col=2,
-        )
-
-        # ACF
-        acf_values = acf(segment_data, nlags=min(40, len(segment_data) // 4))
-        fig.add_trace(
-            go.Bar(x=np.arange(len(acf_values)), y=acf_values, name="ACF"), row=2, col=1
-        )
-
-        # Q-Q plot
-        theoretical_quantiles = stats.norm.ppf(
-            np.linspace(0.01, 0.99, len(segment_data))
-        )
-        sample_quantiles = np.sort(segment_data.values)
-        fig.add_trace(
-            go.Scatter(
-                x=theoretical_quantiles,
-                y=sample_quantiles,
-                mode="markers",
-                name="Q-Q Plot",
-            ),
-            row=2,
-            col=2,
-        )
-
-        fig.update_layout(
-            title=f"{self.friendly_name} - Segment {segment_num} Analysis",
-            height=800,
-            showlegend=False,
-        )
-
-        _ = fig.write_html(output_folder / f"segment_{segment_num}_analysis.html")
+            # Clean up after each segment
+            del segment_data
+            gc.collect()
 
     def plot_acf_pacf(self):
-        """Create ACF and PACF plots"""
-        fig, axes = plt.subplots(2, 1, figsize=(12, 8))
+        """Create ACF and PACF plots with memory optimization"""
+        # Use subset for large datasets
+        plot_data = self.clean_data_series
+        if len(plot_data) > 5000:
+            plot_data = self.clean_data_series.iloc[:5000]
+
+        fig, axes = plt.subplots(2, 1, figsize=(10, 6))
 
         # ACF plot
-        plot_acf(
-            self.clean_data_series,
-            lags=min(50, len(self.clean_data_series) // 4),
-            ax=axes[0],
-            alpha=0.05,
-        )
-        axes[0].set_title(f"Autocorrelation Function - {self.friendly_name}")
+        plot_acf(plot_data, lags=min(40, len(plot_data) // 4), ax=axes[0], alpha=0.05)
+        axes[0].set_title(f"ACF - {self.friendly_name}")
 
         # PACF plot
-        plot_pacf(
-            self.clean_data_series,
-            lags=min(50, len(self.clean_data_series) // 4),
-            ax=axes[1],
-            alpha=0.05,
-        )
-        axes[1].set_title(f"Partial Autocorrelation Function - {self.friendly_name}")
+        plot_pacf(plot_data, lags=min(40, len(plot_data) // 4), ax=axes[1], alpha=0.05)
+        axes[1].set_title(f"PACF - {self.friendly_name}")
 
         plt.tight_layout()
         plt.savefig(
             PLOTS_FOLDER / f"{self.dimension_name}_acf_pacf.png",
-            dpi=300,
+            dpi=150,
             bbox_inches="tight",
         )
-        plt.close()
+        plt.close("all")
+
+        # Clean up
+        del fig, axes
+        gc.collect()
 
         print("ACF and PACF plots created")
 
     def plot_distribution_analysis(self):
-        """Create comprehensive distribution plots"""
+        """Create distribution plots with memory optimization"""
+        # Sample data if too large
+        plot_data = self.clean_data_series
+        if len(plot_data) > 5000:
+            plot_data = self.clean_data_series.sample(n=5000, random_state=42)
+
         fig = make_subplots(
             rows=2,
-            cols=3,
-            subplot_titles=(
-                "Distribution Histogram",
-                "Q-Q Plot",
-                "Box Plot",
-                "Violin Plot",
-                "Time Series",
-                "Rolling Statistics",
-            ),
+            cols=2,
+            subplot_titles=("Histogram", "Q-Q Plot", "Box Plot", "Time Series Sample"),
         )
 
-        # Histogram with KDE
-        hist_data = go.Histogram(
-            x=self.clean_data_series.values,
-            nbinsx=50,
-            name="Histogram",
-            histnorm="probability density",
-        )
-        fig.add_trace(hist_data, row=1, col=1)
-
-        # Add KDE
-        kde_x = np.linspace(
-            self.clean_data_series.min(), self.clean_data_series.max(), 100
-        )
-        kde = stats.gaussian_kde(self.clean_data_series.values)
-        kde_y = kde(kde_x)
+        # Histogram
         fig.add_trace(
-            go.Scatter(x=kde_x, y=kde_y, mode="lines", name="KDE"), row=1, col=1
+            go.Histogram(x=plot_data.values, nbinsx=30, name="Histogram"), row=1, col=1
         )
 
         # Q-Q plot
         theoretical_quantiles = stats.norm.ppf(
-            np.linspace(0.01, 0.99, len(self.clean_data_series))
+            np.linspace(0.01, 0.99, min(len(plot_data), 100))
         )
-        sample_quantiles = np.sort(self.clean_data_series.values)
+        sample_quantiles = np.percentile(
+            plot_data.values, np.linspace(1, 99, min(len(plot_data), 100))
+        )
+
         fig.add_trace(
             go.Scatter(
                 x=theoretical_quantiles,
@@ -530,41 +536,16 @@ class SARIMAAnalyzer:
             row=1,
             col=2,
         )
-        # Add reference line
-        fig.add_trace(
-            go.Scatter(
-                x=[theoretical_quantiles.min(), theoretical_quantiles.max()],
-                y=[theoretical_quantiles.min(), theoretical_quantiles.max()],
-                mode="lines",
-                line=dict(color="red", dash="dash"),
-                name="Normal",
-            ),
-            row=1,
-            col=2,
-        )
 
         # Box plot
-        fig.add_trace(
-            go.Box(y=self.clean_data_series.values, name="Box Plot"), row=1, col=3
-        )
+        fig.add_trace(go.Box(y=plot_data.values, name="Box Plot"), row=2, col=1)
 
-        # Violin plot
-        fig.add_trace(
-            go.Violin(
-                y=self.clean_data_series.values,
-                name="Violin Plot",
-                box_visible=True,
-                meanline_visible=True,
-            ),
-            row=2,
-            col=1,
-        )
-
-        # Time series
+        # Time series sample
+        sample_size = min(1000, len(self.clean_data_series))
         fig.add_trace(
             go.Scatter(
-                x=np.arange(len(self.clean_data_series)),
-                y=self.clean_data_series.values,
+                x=np.arange(sample_size),
+                y=self.clean_data_series.iloc[:sample_size].values,
                 mode="lines",
                 name="Time Series",
                 line=dict(width=0.5),
@@ -573,39 +554,7 @@ class SARIMAAnalyzer:
             col=2,
         )
 
-        # Rolling statistics
-        window = min(
-            168, len(self.clean_data_series) // 10
-        )  # Weekly window or 10% of data
-        rolling_mean = (
-            pd.Series(self.clean_data_series.values).rolling(window=window).mean()
-        )
-        rolling_std = (
-            pd.Series(self.clean_data_series.values).rolling(window=window).std()
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=np.arange(len(rolling_mean)),
-                y=rolling_mean,
-                mode="lines",
-                name="Rolling Mean",
-            ),
-            row=2,
-            col=3,
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=np.arange(len(rolling_std)),
-                y=rolling_std,
-                mode="lines",
-                name="Rolling Std",
-            ),
-            row=2,
-            col=3,
-        )
-
-        # Add statistics text
+        # Add statistics annotation
         stats_text = f"""
         Mean: {self.results['statistics']['mean']:.3f}
         Median: {self.results['statistics']['median']:.3f}
@@ -633,21 +582,30 @@ class SARIMAAnalyzer:
             showlegend=False,
         )
 
-        _ = fig.write_html(
-            PLOTS_FOLDER / f"{self.dimension_name}_distribution_analysis.html"
-        )
+        fig.write_html(PLOTS_FOLDER / f"{self.dimension_name}_distribution.html")
+
+        # Clean up
+        del fig
+        gc.collect()
+
         print("Distribution analysis plots created")
 
     def fit_sarima_model(self, seasonal_period=24):
-        """Fit SARIMA model with automatic parameter selection"""
+        """Fit SARIMA model with memory optimization"""
         print(f"Fitting SARIMA model for {self.friendly_name}...")
 
+        # Use subset for very large datasets
+        model_data = self.clean_data_series
+        if len(model_data) > 10000:
+            model_data = self.clean_data_series.iloc[-10000:]  # Use most recent data
+            print(f"Using last 10000 points for SARIMA fitting")
+
         try:
-            # Use auto_arima for parameter selection
+            # Simplified auto_arima for memory efficiency
             self.model = pm.auto_arima(
-                self.clean_data_series,
+                model_data,
                 seasonal=True,
-                m=seasonal_period,  # Seasonal period (24 for hourly data with daily seasonality)
+                m=seasonal_period,
                 stepwise=True,
                 suppress_warnings=True,
                 error_action="ignore",
@@ -659,24 +617,23 @@ class SARIMAAnalyzer:
                 trace=False,
             )
 
-            # Get model parameters
+            # Get parameters
             order = self.model.order
             seasonal_order = self.model.seasonal_order
 
             self.results["sarima_params"] = {
                 "order": order,
                 "seasonal_order": seasonal_order,
-                "aic": self.model.aic(),
-                "bic": self.model.bic(),
-                "model_summary": str(self.model.summary()),
+                "aic": float(self.model.aic()),
+                "bic": float(self.model.bic()),
             }
 
             # Save model
-            model_path = MODELS_FOLDER / f"{self.dimension_name}_sarima_model.pkl"
+            model_path = MODELS_FOLDER / f"{self.dimension_name}_sarima.pkl"
             with open(model_path, "wb") as f:
-                pickle.dump(self.model, f)
+                pickle.dump({"order": order, "seasonal_order": seasonal_order}, f)
 
-            # Save model parameters
+            # Save parameters
             params_df = pd.DataFrame(
                 {
                     "Parameter": ["p", "d", "q", "P", "D", "Q", "s", "AIC", "BIC"],
@@ -693,190 +650,82 @@ class SARIMAAnalyzer:
                     ],
                 }
             )
-            _ = params_df.to_csv(
+            params_df.to_csv(
                 TABLES_FOLDER / f"{self.dimension_name}_sarima_params.csv", index=False
             )
 
-            print(f"SARIMA{order}x{seasonal_order} fitted successfully")
+            print(f"SARIMA{order}x{seasonal_order} fitted")
             print(f"AIC: {self.model.aic():.2f}, BIC: {self.model.bic():.2f}")
 
-            # Perform residual diagnostics
-            self._analyze_residuals()
+            # Simple residual analysis
+            self._analyze_residuals_simple()
 
-            return self.model
+            # Clean up model after saving parameters
+            del self.model
+            self.model = None
+            gc.collect()
 
         except Exception as e:
-            print(f"Error fitting SARIMA model: {e}")
+            print(f"Error fitting SARIMA: {e}")
             self.results["sarima_params"] = {"error": str(e)}
-            return None
 
-    def _analyze_residuals(self):
-        """Analyze model residuals"""
+    def _analyze_residuals_simple(self):
+        """Simplified residual analysis"""
         if self.model is None:
             return
 
-        residuals = self.model.resid()
+        try:
+            # residuals = self.model.resid()  # [:1000]  # Limit residuals
+            residuals = self.model.resid()[:1000]  # Limit residuals
 
-        # Ljung-Box test for residual autocorrelation
-        lb_test = acorr_ljungbox(residuals, lags=10, return_df=True)
+            # Basic Ljung-Box test
+            lb_test = acorr_ljungbox(
+                residuals, lags=min(10, len(residuals) // 4), return_df=True
+            )
+            lb_test.to_csv(TABLES_FOLDER / f"{self.dimension_name}_ljungbox.csv")
 
-        # Create residual plots
-        fig = make_subplots(
-            rows=2,
-            cols=2,
-            subplot_titles=(
-                "Residuals Over Time",
-                "Residual Distribution",
-                "Residual ACF",
-                "Residual Q-Q Plot",
-            ),
-        )
+            print("Residual analysis completed")
 
-        # Residuals over time
-        fig.add_trace(
-            go.Scatter(
-                x=np.arange(len(residuals)), y=residuals, mode="lines", name="Residuals"
-            ),
-            row=1,
-            col=1,
-        )
+            # Clean up
+            del residuals, lb_test
+            gc.collect()
 
-        # Residual histogram
-        fig.add_trace(
-            go.Histogram(x=residuals, nbinsx=30, name="Distribution"), row=1, col=2
-        )
-
-        # Residual ACF
-        acf_values = acf(residuals, nlags=min(40, len(residuals) // 4))
-        fig.add_trace(
-            go.Bar(x=np.arange(len(acf_values)), y=acf_values, name="ACF"), row=2, col=1
-        )
-
-        # Residual Q-Q plot
-        theoretical_quantiles = stats.norm.ppf(np.linspace(0.01, 0.99, len(residuals)))
-        sample_quantiles = np.sort(residuals)
-        fig.add_trace(
-            go.Scatter(
-                x=theoretical_quantiles, y=sample_quantiles, mode="markers", name="Q-Q"
-            ),
-            row=2,
-            col=2,
-        )
-
-        fig.update_layout(
-            title=f"Residual Analysis - {self.friendly_name}",
-            height=800,
-            showlegend=False,
-        )
-
-        _ = fig.write_html(
-            PLOTS_FOLDER / f"{self.dimension_name}_residual_analysis.html"
-        )
-
-        # Save Ljung-Box test results
-        _ = lb_test.to_csv(TABLES_FOLDER / f"{self.dimension_name}_ljungbox_test.csv")
-
-        print("Residual analysis completed")
+        except Exception as e:
+            print(f"Error in residual analysis: {e}")
 
     def create_forecast_plot(self, n_periods=168):
-        """Create forecast plot"""
-        if self.model is None:
-            return
-
-        # Generate forecast
-        forecast = self.model.predict(n_periods=n_periods)
-        conf_int = self.model.predict(n_periods=n_periods, return_conf_int=True)[1]
-
-        # Create plot
-        fig = go.Figure()
-
-        # Historical data
-        fig.add_trace(
-            go.Scatter(
-                x=np.arange(len(self.clean_data_series)),
-                y=self.clean_data_series.values,
-                mode="lines",
-                name="Historical",
-                line=dict(color="blue", width=0.5),
-            )
-        )
-
-        # Forecast
-        forecast_x = np.arange(
-            len(self.clean_data_series), len(self.clean_data_series) + n_periods
-        )
-        fig.add_trace(
-            go.Scatter(
-                x=forecast_x,
-                y=forecast,
-                mode="lines",
-                name="Forecast",
-                line=dict(color="red", width=2),
-            )
-        )
-
-        # Confidence intervals
-        fig.add_trace(
-            go.Scatter(
-                x=np.concatenate([forecast_x, forecast_x[::-1]]),
-                y=np.concatenate([conf_int[:, 0], conf_int[:, 1][::-1]]),
-                fill="toself",
-                fillcolor="rgba(255,0,0,0.2)",
-                line=dict(color="rgba(255,0,0,0)"),
-                name="95% CI",
-            )
-        )
-
-        fig.update_layout(
-            title=f"SARIMA Forecast - {self.friendly_name}",
-            xaxis_title="Time Index",
-            yaxis_title="Value",
-            height=600,
-        )
-
-        _ = fig.write_html(PLOTS_FOLDER / f"{self.dimension_name}_forecast.html")
-        print(f"Forecast plot created ({n_periods} periods)")
+        """Create simple forecast plot"""
+        # Skip if model wasn't saved properly
+        print(f"Forecast plotting skipped (model cleared for memory)")
 
     def run_complete_analysis(self):
-        """Run the complete SARIMA analysis pipeline"""
+        """Run optimized analysis pipeline"""
         print(f"\n{'='*60}")
-        print(f"Starting SARIMA Analysis for: {self.friendly_name}")
+        print(f"Analyzing: {self.friendly_name}")
         print(f"{'='*60}")
 
         try:
-            # 1. Clean data
+            # Core analyses
             self.clean_data()
-
-            # 2. Calculate statistics
             self.calculate_statistics()
-
-            # 3. Perform ADF test
             self.perform_adf_test()
-
-            # 4. Detect frequency components
             self.detect_frequency_components()
 
-            # 5. Detect multimodal distribution
+            # Memory-intensive analyses
             self.detect_multimodal_distribution()
-
-            # 6. Create ACF/PACF plots
             self.plot_acf_pacf()
-
-            # 7. Create distribution analysis plots
             self.plot_distribution_analysis()
-
-            # 8. Fit SARIMA model
             self.fit_sarima_model()
 
-            # 9. Create forecast plot
-            if self.model is not None:
-                self.create_forecast_plot()
+            print(f"Analysis completed for {self.friendly_name}")
 
-            print(f"Analysis completed successfully for {self.friendly_name}")
+            # Final cleanup
+            self.cleanup_memory()
+
             return self.results
 
         except Exception as e:
-            print(f"Error in analysis for {self.dimension_name}: {e}")
+            print(f"Error in analysis: {e}")
             import traceback
 
             traceback.print_exc()
@@ -884,7 +733,7 @@ class SARIMAAnalyzer:
 
 
 def create_summary_report(all_results):
-    """Create a comprehensive summary report"""
+    """Create summary report"""
     summary_data = []
 
     for dim, results in all_results.items():
@@ -896,52 +745,70 @@ def create_summary_report(all_results):
                     "Std Dev": results.get("statistics", {}).get("std_dev", np.nan),
                     "Skewness": results.get("statistics", {}).get("skewness", np.nan),
                     "Kurtosis": results.get("statistics", {}).get("kurtosis", np.nan),
-                    "Is Stationary": results.get("adf", {}).get("is_stationary", False),
-                    "ADF p-value": results.get("adf", {}).get("p_value", np.nan),
-                    "Is Multimodal": results.get("multimodal_info", {}).get(
+                    "Stationary": results.get("adf", {}).get("is_stationary", False),
+                    "Multimodal": results.get("multimodal_info", {}).get(
                         "is_multimodal", False
                     ),
                     "N Modes": results.get("multimodal_info", {}).get("n_modes", 1),
-                    "Low Freq Components": results.get("frequency_components", {}).get(
+                    "Low Freq": results.get("frequency_components", {}).get(
                         "low_frequency_count", 0
                     ),
-                    "High Freq Components": results.get("frequency_components", {}).get(
+                    "High Freq": results.get("frequency_components", {}).get(
                         "high_frequency_count", 0
                     ),
                     "SARIMA Order": str(
                         results.get("sarima_params", {}).get("order", "N/A")
                     ),
-                    "Seasonal Order": str(
-                        results.get("sarima_params", {}).get("seasonal_order", "N/A")
-                    ),
                     "AIC": results.get("sarima_params", {}).get("aic", np.nan),
-                    "BIC": results.get("sarima_params", {}).get("bic", np.nan),
                 }
             )
 
     if summary_data:
         summary_df = pd.DataFrame(summary_data)
-        _ = summary_df.to_csv(
-            TABLES_FOLDER / "complete_analysis_summary.csv", index=False
-        )
-        _ = summary_df.to_excel(
-            TABLES_FOLDER / "complete_analysis_summary.xlsx", index=False
-        )
-        print("\nSummary report saved to tables folder")
+        summary_df.to_csv(TABLES_FOLDER / "summary.csv", index=False)
+        summary_df.to_excel(TABLES_FOLDER / "summary.xlsx", index=False)
+        print("\nSummary report saved")
         return summary_df
 
     return None
 
 
+def process_dimension_batch(df, dimensions_batch):
+    """Process a batch of dimensions"""
+    results = {}
+
+    for dimension in dimensions_batch:
+        if dimension not in df.columns:
+            print(f"Warning: '{dimension}' not found")
+            continue
+
+        try:
+            data = df[dimension]
+            friendly_name = DIMENSION_NAMES.get(dimension, dimension)
+
+            # Create analyzer
+            analyzer = OptimizedSARIMAAnalyzer(data, dimension, friendly_name)
+
+            # Run analysis
+            results[dimension] = analyzer.run_complete_analysis()
+
+            # Force cleanup
+            del analyzer
+            gc.collect()
+
+        except Exception as e:
+            print(f"Error analyzing {dimension}: {e}")
+            results[dimension] = {"error": str(e)}
+
+    return results
+
+
 def main():
-    """Main execution function - use this with your load_df function"""
-    print("Starting SARIMA Time Series Analysis")
+    """Main execution with batch processing"""
+    print("Starting Optimized SARIMA Analysis")
     print("=" * 60)
 
-    # Import your load_df function
-    import sys
-    import os
-
+    # Import load_df
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from utils.load_df import load_df
 
@@ -955,34 +822,21 @@ def main():
 
     print(f"Data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
 
-    # Store all results
+    # Process dimensions in batches to manage memory
+    batch_size = 3
     all_results = {}
 
-    # Analyze each dimension
-    for dimension in DIMS:
-        if dimension not in df.columns:
-            print(f"\nWarning: Dimension '{dimension}' not found in dataframe")
-            continue
+    for i in range(0, len(DIMS), batch_size):
+        batch = DIMS[i : i + batch_size]
+        print(f"\nProcessing batch {i//batch_size + 1}/{(len(DIMS)-1)//batch_size + 1}")
 
-        try:
-            # Get data for this dimension
-            data = df[dimension]
-            friendly_name = DIMENSION_NAMES.get(dimension, dimension)
+        batch_results = process_dimension_batch(df, batch)
+        all_results.update(batch_results)
 
-            # Create analyzer
-            analyzer = SARIMAAnalyzer(data, dimension, friendly_name)
+        # Force garbage collection between batches
+        gc.collect()
 
-            # Run complete analysis
-            results = analyzer.run_complete_analysis()
-
-            # Store results
-            all_results[dimension] = results
-
-        except Exception as e:
-            print(f"\nError analyzing {dimension}: {e}")
-            all_results[dimension] = {"error": str(e)}
-
-    # Create summary report
+    # Create summary
     print("\n" + "=" * 60)
     print("Creating summary report...")
     summary_df = create_summary_report(all_results)
@@ -994,10 +848,10 @@ def main():
     successful = sum(1 for r in all_results.values() if "error" not in r)
     print(f"Successfully analyzed: {successful}/{len(DIMS)} dimensions")
     print(f"Results saved to: {BASE_OUTPUT_FOLDER}")
-    print(f"  - Models: {MODELS_FOLDER}")
-    print(f"  - Plots: {PLOTS_FOLDER}")
-    print(f"  - Tables: {TABLES_FOLDER}")
-    print(f"  - Multimodal Analysis: {MULTIMODAL_FOLDER}")
+
+    # Final cleanup
+    del df, all_results
+    gc.collect()
 
 
 if __name__ == "__main__":

@@ -9,9 +9,9 @@ import pandas as pd
 DATA_FOLDER = Path("/home/dolores/Documents/matheus-ferreira/TCC-IA/data")
 HTML_FOLDER = Path("/home/dolores/Documents/matheus-ferreira/TCC-IA/html")
 IMAGES_FOLDER = Path("/home/dolores/Documents/matheus-ferreira/TCC-IA/images")
-# DATABASE_URI = str(DATA_FOLDER / "database.db")
+DATABASE_URI = str(DATA_FOLDER / "database.db")
 # In-memory db
-DATABASE_URI = "/mnt/ramdisk/database.db"
+# DATABASE_URI = "/mnt/ramdisk/database.db"
 
 
 # ======================
