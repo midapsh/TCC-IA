@@ -1,7 +1,7 @@
 # Scraping
 requests
 # Data Analysis
-numpy
+# numpy
 pandas
 scipy
 # Models
@@ -18,3 +18,9 @@ jupyter
 notebook
 # Wavelet analysis
 PyWavelets
+# ARIMA analysis
+statsmodels
+pmdarima
+openpyxl
+seaborn
+numpy>=1.21.2,<2.0.0

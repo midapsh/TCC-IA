@@ -4,6 +4,11 @@
 .serverless-rust-output.yaml
 
 # Venv Stuff
+
+# Models stuff
+models/*
+!models/.gitkeep
+
 # Data stuff
 data/*
 !data/.gitkeep
