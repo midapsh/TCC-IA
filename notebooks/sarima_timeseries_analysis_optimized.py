@@ -8,6 +8,23 @@ Enhanced with:
 - Efficient data structures
 """
 
+# =====================
+# LOGGING
+# =====================
+import logging
+
+logging.basicConfig(
+    filename="/home/dolores/Documents/matheus-ferreira/TCC-IA/logs/sarima_analysis_optimized.log",
+    level=logging.INFO,
+    format=(
+        "%(asctime)s.%(msecs)03d [%(levelname)-8s] "
+        "[PID:%(process)16d] [TID:%(thread)20d] "
+        "%(module)s-%(lineno)d-%(name)s: %(message)s"
+    ),
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+LOGGER = logging.getLogger(__file__)
+
 import gc
 import os
 import sys
@@ -46,10 +63,10 @@ gc.set_threshold(700, 10, 10)  # More aggressive garbage collection
 
 # Configuration
 DIMS = [
-    # "precipitacao_total_horario",
-    # "pressao_atmosferica_ao_nivel_da_estacao_horaria",
-    # "pressao_atmosferica_max_na_hora_ant",
-    # "pressao_atmosferica_min_na_hora_ant",
+    "precipitacao_total_horario",
+    "pressao_atmosferica_ao_nivel_da_estacao_horaria",
+    "pressao_atmosferica_max_na_hora_ant",
+    "pressao_atmosferica_min_na_hora_ant",
     "radiacao_global",
     "temperatura_do_ar_bulbo_seco_horaria",
     "temperatura_do_ponto_de_orvalho",
@@ -66,10 +83,10 @@ DIMS = [
 ]
 
 DIMENSION_NAMES = {
-    # "precipitacao_total_horario": "Hourly Precipitation",
-    # "pressao_atmosferica_ao_nivel_da_estacao_horaria": "Atmospheric Pressure (Station Level)",
-    # "pressao_atmosferica_max_na_hora_ant": "Max Atmospheric Pressure (Previous Hour)",
-    # "pressao_atmosferica_min_na_hora_ant": "Min Atmospheric Pressure (Previous Hour)",
+    "precipitacao_total_horario": "Hourly Precipitation",
+    "pressao_atmosferica_ao_nivel_da_estacao_horaria": "Atmospheric Pressure (Station Level)",
+    "pressao_atmosferica_max_na_hora_ant": "Max Atmospheric Pressure (Previous Hour)",
+    "pressao_atmosferica_min_na_hora_ant": "Min Atmospheric Pressure (Previous Hour)",
     "radiacao_global": "Global Radiation",
     "temperatura_do_ar_bulbo_seco_horaria": "Air Temperature (Dry Bulb)",
     "temperatura_do_ponto_de_orvalho": "Dew Point Temperature",
@@ -116,21 +133,25 @@ class OptimizedSARIMAAnalyzer:
         self.friendly_name = friendly_name
         self.results = {}
         self.multimodal_info = {}
+        self._logger = logging.getLogger(__file__)
 
     def analyze_dimension(self, data: pd.Series) -> Dict:
         """Main analysis function optimized for memory"""
-        print(f"\n{'='*60}")
-        print(f"Analyzing: {self.friendly_name}")
-        print(f"Initial memory: {get_memory_usage():.1f} MB")
-        print(f"{'='*60}")
+        self._logger.info(f"{'='*60}")
+        self._logger.info(f"Analyzing: {self.friendly_name}")
+        self._logger.info(f"Initial memory: {get_memory_usage():.1f} MB")
+        self._logger.info(f"{'='*60}")
 
         try:
             # Clean data
             clean_data = data.dropna()
             if len(clean_data) < 100:
+                self._logger.warning(
+                    f"Insufficient data: {len(clean_data)} points for {self.dimension_name}"
+                )
                 return {"error": f"Insufficient data: {len(clean_data)} points"}
 
-            print(f"Data points: {len(clean_data)}")
+            self._logger.info(f"Data points: {len(clean_data)}")
 
             # 1. Basic statistics (low memory)
             stats_results = self._calculate_statistics(clean_data)
@@ -159,11 +180,13 @@ class OptimizedSARIMAAnalyzer:
             self.results["sarima_params"] = sarima_results
             clean_memory()
 
-            print(f"Final memory: {get_memory_usage():.1f} MB")
+            self._logger.info(f"Final memory: {get_memory_usage():.1f} MB")
             return self.results
 
         except Exception as e:
-            print(f"Error: {e}")
+            self._logger.error(
+                f"Error analyzing {self.dimension_name}: {e}", exc_info=True
+            )
             return {"error": str(e)}
         finally:
             clean_memory()
@@ -192,8 +215,8 @@ class OptimizedSARIMAAnalyzer:
             TABLES_FOLDER / f"{self.dimension_name}_statistics.csv"
         )
 
-        print(
-            f"Stats - Skew: {stats_dict['skewness']:.3f}, Kurt: {stats_dict['kurtosis']:.3f}"
+        self._logger.info(
+            f"Stats for {self.dimension_name} - Skew: {stats_dict['skewness']:.3f}, Kurt: {stats_dict['kurtosis']:.3f}"
         )
         return stats_dict
 
@@ -217,8 +240,8 @@ class OptimizedSARIMAAnalyzer:
             TABLES_FOLDER / f"{self.dimension_name}_adf_test.csv", index=False
         )
 
-        print(
-            f"ADF - Stationary: {adf_dict['is_stationary']} (p={adf_dict['p_value']:.4f})"
+        self._logger.info(
+            f"ADF for {self.dimension_name} - Stationary: {adf_dict['is_stationary']} (p={adf_dict['p_value']:.4f})"
         )
         return adf_dict
 
@@ -261,7 +284,9 @@ class OptimizedSARIMAAnalyzer:
             index=False,
         )
 
-        print(f"Frequencies - Low: {low_freq}, Mid: {mid_freq}, High: {high_freq}")
+        self._logger.info(
+            f"Frequencies for {self.dimension_name} - Low: {low_freq}, Mid: {mid_freq}, High: {high_freq}"
+        )
 
         # Clear large arrays
         del fft_vals, power
@@ -303,9 +328,11 @@ class OptimizedSARIMAAnalyzer:
             multimodal_dict["mode_means"] = gmm.means_.flatten().tolist()
             multimodal_dict["mode_weights"] = gmm.weights_.tolist()
 
-            print(f"Multimodal: {optimal_components} modes detected")
+            self._logger.info(
+                f"Multimodal for {self.dimension_name}: {optimal_components} modes detected"
+            )
         else:
-            print("Unimodal distribution")
+            self._logger.info(f"Unimodal distribution for {self.dimension_name}")
 
         # Save results
         pd.DataFrame(
@@ -351,9 +378,11 @@ class OptimizedSARIMAAnalyzer:
             )
             plt.close("all")
 
-            print("ACF/PACF plots created")
+            self._logger.info(f"ACF/PACF plots created for {self.dimension_name}")
         except Exception as e:
-            print(f"Error creating ACF/PACF plots: {e}")
+            self._logger.error(
+                f"Error creating ACF/PACF plots for {self.dimension_name}: {e}"
+            )
         finally:
             plt.close("all")
 
@@ -425,20 +454,22 @@ class OptimizedSARIMAAnalyzer:
 
             fig.write_html(PLOTS_FOLDER / f"{self.dimension_name}_distribution.html")
 
-            print("Distribution plots created")
+            self._logger.info(f"Distribution plots created for {self.dimension_name}")
         except Exception as e:
-            print(f"Error creating distribution plots: {e}")
+            self._logger.error(
+                f"Error creating distribution plots for {self.dimension_name}: {e}"
+            )
 
     def _fit_sarima_optimized(self, data: pd.Series) -> Dict:
         """Fit SARIMA model with memory optimization"""
-        print(f"Fitting SARIMA model...")
+        self._logger.info(f"Fitting SARIMA model for {self.dimension_name}...")
 
         try:
             # Downsample for initial parameter search if data is large
             if len(data) > 5000:
                 sample_data = data[::2]  # Take every other point
-                print(
-                    f"Using downsampled data ({len(sample_data)} points) for parameter search"
+                self._logger.info(
+                    f"Using downsampled data ({len(sample_data)} points) for parameter search on {self.dimension_name}"
                 )
             else:
                 sample_data = data
@@ -467,7 +498,9 @@ class OptimizedSARIMAAnalyzer:
 
             # If we downsampled, refit on full data with found parameters
             if len(data) > 5000:
-                print(f"Refitting on full data with SARIMA{order}x{seasonal_order}")
+                self._logger.info(
+                    f"Refitting on full data with SARIMA{order}x{seasonal_order} for {self.dimension_name}"
+                )
                 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
                 final_model = SARIMAX(
@@ -498,7 +531,9 @@ class OptimizedSARIMAAnalyzer:
                 TABLES_FOLDER / f"{self.dimension_name}_sarima_params.csv", index=False
             )
 
-            print(f"SARIMA{order}x{seasonal_order} - AIC: {aic:.2f}, BIC: {bic:.2f}")
+            self._logger.info(
+                f"SARIMA{order}x{seasonal_order} for {self.dimension_name} - AIC: {aic:.2f}, BIC: {bic:.2f}"
+            )
 
             # Clear model from memory
             del model
@@ -508,13 +543,17 @@ class OptimizedSARIMAAnalyzer:
             return sarima_dict
 
         except Exception as e:
-            print(f"Error fitting SARIMA: {e}")
+            self._logger.error(
+                f"Error fitting SARIMA for {self.dimension_name}: {e}", exc_info=True
+            )
             return {"error": str(e)}
 
 
 def process_dimension_parallel(dimension: str, df: pd.DataFrame) -> Tuple[str, Dict]:
     """Process a single dimension (for parallel execution)"""
+    _logger = logging.getLogger(__file__)
     if dimension not in df.columns:
+        _logger.warning(f"Dimension {dimension} not found in dataframe")
         return dimension, {"error": f"Dimension not found"}
 
     try:
@@ -531,13 +570,14 @@ def process_dimension_parallel(dimension: str, df: pd.DataFrame) -> Tuple[str, D
         return dimension, results
 
     except Exception as e:
-        print(f"Error processing {dimension}: {e}")
+        _logger.error(f"Error processing {dimension}: {e}", exc_info=True)
         return dimension, {"error": str(e)}
 
 
 def process_batch(dimensions: List[str], df: pd.DataFrame, batch_num: int) -> Dict:
     """Process a batch of dimensions"""
-    print(f"\nProcessing batch {batch_num} with {len(dimensions)} dimensions")
+    _logger = logging.getLogger(__file__)
+    _logger.info(f"Processing batch {batch_num} with {len(dimensions)} dimensions")
     results = {}
 
     for dim in dimensions:
@@ -585,7 +625,7 @@ def create_summary_report(all_results: Dict):
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_csv(TABLES_FOLDER / "summary.csv", index=False)
         summary_df.to_excel(TABLES_FOLDER / "summary.xlsx", index=False)
-        print("\nSummary report saved")
+        LOGGER.info("Summary report saved")
         return summary_df
 
     return None
@@ -593,30 +633,30 @@ def create_summary_report(all_results: Dict):
 
 def main():
     """Main execution with parallel processing and memory management"""
-    print("=" * 60)
-    print("OPTIMIZED SARIMA TIME SERIES ANALYSIS")
-    print("=" * 60)
-    print(f"CPU cores available: {mp.cpu_count()}")
-    print(f"Initial memory: {get_memory_usage():.1f} MB")
+    LOGGER.info("=" * 60)
+    LOGGER.info("OPTIMIZED SARIMA TIME SERIES ANALYSIS")
+    LOGGER.info("=" * 60)
+    LOGGER.info(f"CPU cores available: {mp.cpu_count()}")
+    LOGGER.info(f"Initial memory: {get_memory_usage():.1f} MB")
 
     # Import data loader
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
     from utils.load_df import load_df
 
-    print("Loading data...")
+    LOGGER.info("Loading data...")
     df = load_df()
 
     if df.empty:
-        print("Error: Empty dataframe")
+        LOGGER.error("Error: Empty dataframe")
         return
     df = df[["datetime"] + DIMS]
 
-    print(f"Data shape: {df.shape}")
+    LOGGER.info(f"Data shape: {df.shape}")
 
     # Determine processing strategy based on available memory
     available_memory = psutil.virtual_memory().available / 1024 / 1024 / 1024  # GB
-    print(f"Available memory: {available_memory:.1f} GB")
+    LOGGER.info(f"Available memory: {available_memory:.1f} GB")
 
     # Process dimensions
     all_results = {}
@@ -632,20 +672,20 @@ def main():
         batch_size = 1  # Process 1 dimension at a time
         n_workers = 1
 
-    print(f"Processing strategy: batch_size={batch_size}, workers={n_workers}")
+    LOGGER.info(f"Processing strategy: batch_size={batch_size}, workers={n_workers}")
 
     # Filter available dimensions
     available_dims = [d for d in DIMS if d in df.columns]
-    print(f"Found {len(available_dims)} dimensions to analyze")
+    LOGGER.info(f"Found {len(available_dims)} dimensions to analyze")
 
     # Process in batches
     for i in range(0, len(available_dims), batch_size):
         batch = available_dims[i : i + batch_size]
         batch_num = i // batch_size + 1
 
-        print(f"\n{'='*60}")
-        print(f"BATCH {batch_num}/{(len(available_dims)-1)//batch_size + 1}")
-        print(f"{'='*60}")
+        LOGGER.info(f"{'='*60}")
+        LOGGER.info(f"BATCH {batch_num}/{(len(available_dims)-1)//batch_size + 1}")
+        LOGGER.info(f"{'='*60}")
 
         if n_workers > 1 and len(batch) > 1:
             # Parallel processing within batch
@@ -658,10 +698,12 @@ def main():
                 for future in futures:
                     dim = futures[future]
                     try:
-                        dim_name, results = future.result(timeout=300)  # 5 min timeout
+                        dim_name, results = future.result(
+                            timeout=3 * 60 * 60
+                        )  # 3 hours timeout
                         all_results[dim_name] = results
                     except Exception as e:
-                        print(f"Error processing {dim}: {e}")
+                        LOGGER.error(f"Error processing {dim}: {e}", exc_info=True)
                         all_results[dim] = {"error": str(e)}
         else:
             # Sequential processing
@@ -670,24 +712,24 @@ def main():
 
         # Clean memory after each batch
         clean_memory()
-        print(f"Memory after batch: {get_memory_usage():.1f} MB")
+        LOGGER.info(f"Memory after batch: {get_memory_usage():.1f} MB")
 
     # Create summary report
-    print("\n" + "=" * 60)
-    print("Creating summary report...")
+    LOGGER.info("=" * 60)
+    LOGGER.info("Creating summary report...")
     summary_df = create_summary_report(all_results)
 
     # Final summary
-    print("\n" + "=" * 60)
-    print("ANALYSIS COMPLETE")
-    print("=" * 60)
+    LOGGER.info("=" * 60)
+    LOGGER.info("ANALYSIS COMPLETE")
+    LOGGER.info("=" * 60)
     successful = sum(1 for r in all_results.values() if "error" not in r)
-    print(f"Successfully analyzed: {successful}/{len(available_dims)} dimensions")
-    print(f"Final memory usage: {get_memory_usage():.1f} MB")
-    print(f"\nResults saved to: {BASE_OUTPUT_FOLDER}")
-    print(f"  - Models: {MODELS_FOLDER}")
-    print(f"  - Plots: {PLOTS_FOLDER}")
-    print(f"  - Tables: {TABLES_FOLDER}")
+    LOGGER.info(f"Successfully analyzed: {successful}/{len(available_dims)} dimensions")
+    LOGGER.info(f"Final memory usage: {get_memory_usage():.1f} MB")
+    LOGGER.info(f"Results saved to: {BASE_OUTPUT_FOLDER}")
+    LOGGER.info(f"  - Models: {MODELS_FOLDER}")
+    LOGGER.info(f"  - Plots: {PLOTS_FOLDER}")
+    LOGGER.info(f"  - Tables: {TABLES_FOLDER}")
 
 
 if __name__ == "__main__":
