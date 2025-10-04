@@ -1,9 +1,10 @@
 from datetime import datetime
+from multiprocessing import Pool
+from os import cpu_count
 from pathlib import Path
 from typing import NamedTuple, TypedDict
 import logging
 import sqlite3
-from multiprocessing import Pool, cpu_count
 
 from configs import CONFIGS
 
@@ -93,7 +94,8 @@ def get_all_metadata() -> list[StationMetadata]:
     total_files = len(files)
     LOGGER.info("Total files to parse: %d", total_files)
 
-    with Pool(processes=20) as pool:
+    processes = max((cpu_count() or 4) - 1, 2)
+    with Pool(processes=processes) as pool:
         data = pool.map(_parse_header, files)
 
     LOGGER.info("Finished parsing all files")
