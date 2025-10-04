@@ -25,3 +25,10 @@ openpyxl
 seaborn
 numpy>=1.21.2,<2.0.0
 psutil
+#
+duckdb
+# NN
+torch
+pyro-ppl
+gpytorch
+sbi
