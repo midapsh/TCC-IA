@@ -2,12 +2,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple, TypedDict
 import logging
+import sqlite3
 
 from configs import CONFIGS
 
 logging.basicConfig(
     filename=CONFIGS.LOG_FOLDER.joinpath("csv_stuff.log"),
-    level=logging.INFO,
+    level=logging.DEBUG,
     format=(
         "%(asctime)s.%(msecs)03d [%(levelname)-8s] "
         "[PID:%(process)16d] [TID:%(thread)20d] "
@@ -79,24 +80,24 @@ def parse_header(file_path: Path, /) -> StationMetadata:
     return StationMetadata(**metadata)
 
 
-##############
-
-from datetime import datetime
-from typing import NamedTuple
-
-
 def get_all_metadata() -> list[StationMetadata]:
+    files = [
+        filepath
+        for folder_year in CONFIGS.DATA_CSV_FOLDER.iterdir()
+        if folder_year.is_dir()
+        for filepath in folder_year.glob("*.csv", case_sensitive=False)
+    ]
+
+    total_files = len(files)
+    LOGGER.info("Total files to parse: %d", total_files)
+
     data = []
-    for folder_year in CONFIGS.DATA_CSV_FOLDER.iterdir():
-        if not folder_year.is_dir():
-            continue
-        for filepath in folder_year.glob("*.csv", case_sensitive=False):
-            station_metadata = parse_header(filepath)
-            data.append(station_metadata)
+    for i, filepath in enumerate(files, 1):
+        LOGGER.debug("Files remaining: %d/%d", total_files - i + 1, total_files)
+        station_metadata = parse_header(filepath)
+        data.append(station_metadata)
+
     return data
-
-
-##############
 
 
 def filter_unique_inplace(data: list[StationMetadata], /) -> None:
@@ -122,13 +123,6 @@ def filter_unique_inplace(data: list[StationMetadata], /) -> None:
     data.extend(unique_data)
 
     LOGGER.info("Uniqueness filter complete. Unique stations: %d", len(data))
-    return
-
-
-##############
-
-
-import sqlite3
 
 
 def setup_database() -> None:
@@ -143,52 +137,37 @@ def setup_database() -> None:
             longitude REAL,
             altitude REAL,
             foundation_date DATE
+        )
     """
     with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
         conn.execute(STMT)
-        conn.execute(
-            "CREATE INDEX idx_station_metadata_region ON station_metadata(region)"
-        )
-        conn.execute(
-            "CREATE INDEX idx_station_metadata_state ON station_metadata(state)"
-        )
-        conn.execute(
-            "CREATE INDEX idx_station_metadata_station ON station_metadata(station)"
-        )
-        conn.execute("CREATE INDEX idx_station_metadata_code ON station_metadata(code)")
-        conn.execute(
-            "CREATE INDEX idx_station_metadata_latitude ON station_metadata(latitude)"
-        )
-        conn.execute(
-            "CREATE INDEX idx_station_metadata_longitude ON station_metadata(longitude)"
-        )
-        conn.execute(
-            "CREATE INDEX idx_station_metadata_altitude ON station_metadata(altitude)"
-        )
-        conn.execute(
-            "CREATE INDEX idx_station_metadata_foundation_date ON station_metadata(foundation_date)"
-        )
-    return
-
-
-##############
+        for col in [
+            "region",
+            "state",
+            "station",
+            "code",
+            "latitude",
+            "longitude",
+            "altitude",
+            "foundation_date",
+        ]:
+            conn.execute(
+                f"CREATE INDEX idx_station_metadata_{col} ON station_metadata({col})"
+            )
 
 
 def save_metadata(data: list[StationMetadata], /) -> None:
     STMT = """
     INSERT INTO station_metadata (
-    region, state, station, code, latitude, longitude, altitude, foundation_date
+        region, state, station, code, latitude, longitude, altitude, foundation_date
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """
     with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
         conn.executemany(STMT, data)
-    return
-
-
-##############
 
 
 def main() -> None:
+    setup_database()
     data = get_all_metadata()
     filter_unique_inplace(data)
     save_metadata(data)
