@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import NamedTuple, TypedDict
 import logging
 import sqlite3
+from multiprocessing import Pool, cpu_count
 
 from configs import CONFIGS
 
@@ -41,7 +42,7 @@ class StationMetadataTemp(TypedDict, total=False):
     foundation_date: str
 
 
-def parse_header(file_path: Path, /) -> StationMetadata:
+def _parse_header(file_path: Path, /) -> StationMetadata:
     metadata: StationMetadataTemp = {}
     with file_path.open() as f:
         for _ in range(8):
@@ -81,6 +82,7 @@ def parse_header(file_path: Path, /) -> StationMetadata:
 
 
 def get_all_metadata() -> list[StationMetadata]:
+    LOGGER.info("Get all metadata")
     files = [
         filepath
         for folder_year in CONFIGS.DATA_CSV_FOLDER.iterdir()
@@ -91,12 +93,10 @@ def get_all_metadata() -> list[StationMetadata]:
     total_files = len(files)
     LOGGER.info("Total files to parse: %d", total_files)
 
-    data = []
-    for i, filepath in enumerate(files, 1):
-        LOGGER.debug("Files remaining: %d/%d", total_files - i + 1, total_files)
-        station_metadata = parse_header(filepath)
-        data.append(station_metadata)
+    with Pool(processes=20) as pool:
+        data = pool.map(_parse_header, files)
 
+    LOGGER.info("Finished parsing all files")
     return data
 
 
@@ -157,6 +157,7 @@ def setup_database() -> None:
 
 
 def save_metadata(data: list[StationMetadata], /) -> None:
+    LOGGER.info("Save metadata")
     STMT = """
     INSERT INTO station_metadata (
         region, state, station, code, latitude, longitude, altitude, foundation_date
