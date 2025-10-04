@@ -7,6 +7,8 @@ import logging
 import sqlite3
 
 from configs import CONFIGS
+from utils.slugify import slugify
+
 
 logging.basicConfig(
     filename=CONFIGS.LOG_FOLDER.joinpath("csv_stuff.log"),
@@ -45,41 +47,51 @@ class StationMetadataTemp(TypedDict, total=False):
 
 def _parse_header(file_path: Path, /) -> StationMetadata:
     metadata: StationMetadataTemp = {}
-    with file_path.open() as f:
-        for _ in range(8):
-            line = f.readline().strip()[1:].strip()
-            if ":;" not in line:
-                continue
+    try:
+        with file_path.open() as f:
+            for _ in range(8):
+                line = f.readline()
+                line = line.strip()
+                if ":;" not in line:
+                    continue
 
-            key, value = line.split(":;", 1)
-            key = key.lower()
-            value = value.strip()
+                key, value = line.split(":;", 1)
+                key = slugify(key)
+                value = value.strip()
 
-            if "regiao" in key:
-                metadata["region"] = value
-            elif "uf" in key:
-                metadata["state"] = value
-            elif "estacao" in key:
-                metadata["station"] = value
-            elif "codigo" in key:
-                metadata["code"] = value
-            elif "latitude" in key:
-                metadata["latitude"] = value.replace(",", ".")
-            elif "longitude" in key:
-                metadata["longitude"] = value.replace(",", ".")
-            elif "altitude" in key:
-                metadata["altitude"] = value.replace(",", ".")
-            elif "fundacao" in key:
-                try:
-                    metadata["foundation_date"] = (
-                        datetime.strptime(value, "%Y-%m-%d").date().isoformat()
-                    )
-                except ValueError:
-                    metadata["foundation_date"] = (
-                        datetime.strptime(value, "%d/%m/%y").date().isoformat()
-                    )
+                if "regiao" in key or "regio" in key:
+                    metadata["region"] = value
+                elif "uf" in key:
+                    metadata["state"] = value
+                elif "estacao" in key or "estaco" in key:
+                    metadata["station"] = value
+                elif "codigo" in key:
+                    metadata["code"] = value
+                elif "latitude" in key:
+                    metadata["latitude"] = value.replace(",", ".")
+                elif "longitude" in key:
+                    metadata["longitude"] = value.replace(",", ".")
+                elif "altitude" in key:
+                    metadata["altitude"] = value.replace(",", ".")
+                elif "fundacao" in key or "fundaco" in key:
+                    try:
+                        metadata["foundation_date"] = (
+                            datetime.strptime(value, "%Y-%m-%d").date().isoformat()
+                        )
+                    except ValueError:
+                        metadata["foundation_date"] = (
+                            datetime.strptime(value, "%d/%m/%y").date().isoformat()
+                        )
 
-    return StationMetadata(**metadata)
+        return StationMetadata(**metadata)
+    except Exception as e:
+        LOGGER.error(
+            "Error parsing file: %s\nError: %s\nMetadata: %s",
+            file_path,
+            str(e),
+            metadata,
+        )
+        raise
 
 
 def get_all_metadata() -> list[StationMetadata]:
@@ -109,12 +121,9 @@ def filter_unique_inplace(data: list[StationMetadata], /) -> None:
     unique_data = []
 
     for station in data:
-        if station.code in seen:
-            LOGGER.warning(
-                "Duplicate station code found: %s - %s", station.code, station.station
-            )
+        if station in seen:
             continue
-        seen.add(station.code)
+        seen.add(station)
         unique_data.append(station)
 
     duplicates_count = len(data) - len(unique_data)
@@ -125,6 +134,7 @@ def filter_unique_inplace(data: list[StationMetadata], /) -> None:
     data.extend(unique_data)
 
     LOGGER.info("Uniqueness filter complete. Unique stations: %d", len(data))
+    return
 
 
 def setup_database() -> None:
@@ -142,7 +152,9 @@ def setup_database() -> None:
         )
     """
     with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
+        conn.execute("DROP TABLE IF EXISTS station_metadata")
         conn.execute(STMT)
+
         for col in [
             "region",
             "state",
@@ -157,6 +169,8 @@ def setup_database() -> None:
                 f"CREATE INDEX idx_station_metadata_{col} ON station_metadata({col})"
             )
 
+    return
+
 
 def save_metadata(data: list[StationMetadata], /) -> None:
     LOGGER.info("Save metadata")
@@ -168,12 +182,15 @@ def save_metadata(data: list[StationMetadata], /) -> None:
     with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
         conn.executemany(STMT, data)
 
+    return
+
 
 def main() -> None:
     setup_database()
     data = get_all_metadata()
     filter_unique_inplace(data)
     save_metadata(data)
+    return
 
 
 if __name__ == "__main__":
