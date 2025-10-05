@@ -34,6 +34,14 @@ class Configs:
             )
         )
     )
+    DUCKDB_DATABASE_URI: Path = field(
+        default_factory=lambda: Path(
+            getenv(
+                "DUCKDB_DATABASE_URI",
+                "/home/dolores/Documents/matheus-ferreira/TCC-IA/data/database.duckdb",
+            )
+        )
+    )
 
 
 CONFIGS = Configs()
