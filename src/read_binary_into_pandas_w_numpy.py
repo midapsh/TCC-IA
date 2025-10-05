@@ -1,15 +1,14 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from os import cpu_count
 from pathlib import Path
-import struct
 
+import numpy as np
 import pandas as pd
 
 from configs import CONFIGS
 
-# Binary layout: 2 ints + 17 doubles
-BINARY_FORMAT = "ii" + "d" * 17
-RECORD_SIZE = struct.calcsize(BINARY_FORMAT)
+# Binary layout: 2 ints (int32) + 17 doubles (float64)
+DTYPE = np.dtype([("int_fields", np.int32, 2), ("double_fields", np.float64, 17)])
 
 COLUMNS = [
     "timestamp",
@@ -38,12 +37,14 @@ def read_binary_file(file_path: Path, /) -> pd.DataFrame:
     """Read one binary file into a pandas DataFrame, extracting id_code from filename."""
     # Extract id_code from filename pattern: station_data_<id_code>_batch.bin
     id_code = int(file_path.stem.split("_")[2])
-    records = []
 
-    with open(file_path, "rb") as f:
-        while chunk := f.read(RECORD_SIZE):
-            record = struct.unpack(BINARY_FORMAT, chunk)
-            records.append(record)
+    # Read binary data using numpy
+    data = np.fromfile(file_path, dtype=DTYPE)
+
+    # Flatten the structured array into a 2D array
+    int_data = data["int_fields"]
+    double_data = data["double_fields"]
+    records = np.column_stack([int_data, double_data])
 
     df = pd.DataFrame(records, columns=COLUMNS)
     df.insert(0, "id_code", id_code)
