@@ -92,7 +92,7 @@ def read_binary_files_by_id(folder: Path, id_codes: list[int], /) -> pd.DataFram
 def main():
     folder = CONFIGS.DATA_BINARY_FOLDER
     df = read_all_binary_files(folder)
-    print(df.head())
+    df.head().to_csv("text.txt")
 
 
 if __name__ == "__main__":
