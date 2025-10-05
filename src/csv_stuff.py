@@ -20,38 +20,62 @@ logging.basicConfig(
     ),
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
-LOGGER = logging.getLogger(__file__)
+LOGGER = logging.getLogger(__name__)
+
+
+class Station(NamedTuple):
+    code: str
+    id_code: int
+
+
+class StationTemp(TypedDict, total=False):
+    code: str
+    id_code: int
 
 
 class StationMetadata(NamedTuple):
+    id_code: int
     region: str
     state: str
-    station: str
-    code: str
+    name: str
     latitude: str
     longitude: str
-    altitude: str
+    altitude: str | None
     foundation_date: str
+    year: str
+    filename: str
 
 
 class StationMetadataTemp(TypedDict, total=False):
+    id_code: int
     region: str
     state: str
-    station: str
-    code: str
+    name: str
     latitude: str
     longitude: str
-    altitude: str
+    altitude: str | None
     foundation_date: str
+    year: str
+    filename: str
 
 
-def _parse_header(file_path: Path, /) -> StationMetadata:
-    metadata: StationMetadataTemp = {}
+class FileMetadata(NamedTuple):
+    station: Station
+    station_metadata: StationMetadata
+
+
+def string_to_number(text: str, /) -> int:
+    return int("".join("{}".format(ord(c)) for c in text))
+
+
+# -------------------- PARSE HEADER --------------------
+def _parse_header(file_path: Path, /) -> FileMetadata:
+    station_temp: StationTemp = {}
+    station_metadata_temp: StationMetadataTemp = {}
     try:
-        with file_path.open() as f:
+        with file_path.open(mode="r") as f:
             for _ in range(8):
-                line = f.readline()
-                line = line.strip()
+                line = f.readline().strip()
                 if ":;" not in line:
                     continue
 
@@ -60,41 +84,69 @@ def _parse_header(file_path: Path, /) -> StationMetadata:
                 value = value.strip()
 
                 if "regiao" in key or "regio" in key:
-                    metadata["region"] = value
+                    station_metadata_temp["region"] = value
+                    continue
                 elif "uf" in key:
-                    metadata["state"] = value
+                    station_metadata_temp["state"] = value
+                    continue
                 elif "estacao" in key or "estaco" in key:
-                    metadata["station"] = value
+                    station_metadata_temp["name"] = value
+                    continue
                 elif "codigo" in key:
-                    metadata["code"] = value
+                    id_code = string_to_number(value)
+                    station_temp["code"] = value
+                    station_temp["id_code"] = id_code
+                    station_metadata_temp["id_code"] = id_code
+                    continue
                 elif "latitude" in key:
-                    metadata["latitude"] = value.replace(",", ".")
+                    station_metadata_temp["latitude"] = value.replace(",", ".")
+                    continue
                 elif "longitude" in key:
-                    metadata["longitude"] = value.replace(",", ".")
+                    station_metadata_temp["longitude"] = value.replace(",", ".")
+                    continue
                 elif "altitude" in key:
-                    metadata["altitude"] = value.replace(",", ".")
+                    if value.strip().upper() == "F":
+                        station_metadata_temp["altitude"] = None
+                        continue
+                    else:
+                        station_metadata_temp["altitude"] = value.replace(",", ".")
+                        continue
                 elif "fundacao" in key or "fundaco" in key:
                     try:
-                        metadata["foundation_date"] = (
+                        station_metadata_temp["foundation_date"] = (
                             datetime.strptime(value, "%Y-%m-%d").date().isoformat()
                         )
+                        continue
                     except ValueError:
-                        metadata["foundation_date"] = (
+                        station_metadata_temp["foundation_date"] = (
                             datetime.strptime(value, "%d/%m/%y").date().isoformat()
                         )
+                        continue
 
-        return StationMetadata(**metadata)
+        station = Station(**station_temp)
+
+        station_metadata_temp["year"] = file_path.parent.name
+        station_metadata_temp["filename"] = file_path.name
+        station_metadata = StationMetadata(**station_metadata_temp)
+
+        file_metadata = FileMetadata(
+            station=station,
+            station_metadata=station_metadata,
+        )
+        return file_metadata
     except Exception as e:
         LOGGER.error(
-            "Error parsing file: %s\nError: %s\nMetadata: %s",
+            "Error parsing file: %s\nError: %s\nStation: %s\nMetadata: %s",
             file_path,
             str(e),
-            metadata,
+            station_temp,
+            station_metadata_temp,
         )
         raise
 
 
-def get_all_metadata() -> list[StationMetadata]:
+# -------------------- LOAD ALL FileMetadata --------------------
+def get_all_metadata() -> list[FileMetadata]:
     LOGGER.info("Get all metadata")
     files = [
         filepath
@@ -114,73 +166,118 @@ def get_all_metadata() -> list[StationMetadata]:
     return data
 
 
-def filter_unique_inplace(data: list[StationMetadata], /) -> None:
+class AggFileMetadata(NamedTuple):
+    station: Station
+    stations_metadata: list[StationMetadata]
+
+
+def agg_unique_consume(data: list[FileMetadata], /) -> list[AggFileMetadata]:
     LOGGER.info("Starting uniqueness filter. Total stations to map: %d", len(data))
 
-    seen = set()
-    unique_data = []
+    aggregator: dict[str, AggFileMetadata] = {}
 
-    for station in data:
-        if station in seen:
-            continue
-        seen.add(station)
-        unique_data.append(station)
+    for file_metadata in data:
+        key = file_metadata.station.code
+        if key not in aggregator:
+            aggregator[key] = AggFileMetadata(
+                station=file_metadata.station,
+                stations_metadata=[file_metadata.station_metadata],
+            )
+        else:
+            aggregator[key].stations_metadata.append(file_metadata.station_metadata)
 
-    duplicates_count = len(data) - len(unique_data)
+    duplicates_count = len(data) - len(aggregator)
     if duplicates_count > 0:
         LOGGER.warning("Removed %d duplicate stations", duplicates_count)
 
     data.clear()
-    data.extend(unique_data)
 
     LOGGER.info("Uniqueness filter complete. Unique stations: %d", len(data))
-    return
+
+    temp = [agg for agg in aggregator.values()]
+    aggregator.clear()
+    return temp
 
 
 def setup_database() -> None:
-    STMT = """
-        CREATE TABLE station_metadata (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            region TEXT,
-            state TEXT,
-            station TEXT,
-            code TEXT,
-            latitude REAL,
-            longitude REAL,
-            altitude REAL,
-            foundation_date DATE
-        )
+    STMT_STATION = """
+CREATE TABLE station (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL,
+    id_code INTEGER NOT NULL
+)
+    """
+
+    STMT_STATION_METADATA = """
+CREATE TABLE station_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_code INTEGER NOT NULL,
+    region TEXT NOT NULL,
+    state TEXT NOT NULL,
+    name TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    altitude REAL NULL,
+    filename TEXT NOT NULL,
+    foundation_date DATE NOT NULL,
+    FOREIGN KEY (id_code) REFERENCES station(id_code)
+)
     """
     with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
+        conn.execute("DROP TABLE IF EXISTS station")
         conn.execute("DROP TABLE IF EXISTS station_metadata")
-        conn.execute(STMT)
+        conn.execute(STMT_STATION)
+        conn.execute(STMT_STATION_METADATA)
 
         for col in [
+            "code",
+            "id_code",
+        ]:
+            conn.execute(f"CREATE INDEX idx_station_{col} ON station({col})")
+
+        for col in [
+            "id_code",
             "region",
             "state",
-            "station",
-            "code",
+            "name",
+            "year",
             "latitude",
             "longitude",
             "altitude",
+            "filename",
             "foundation_date",
         ]:
             conn.execute(
                 f"CREATE INDEX idx_station_metadata_{col} ON station_metadata({col})"
             )
-
     return
 
 
-def save_metadata(data: list[StationMetadata], /) -> None:
+def save_metadata_consume(data: list[AggFileMetadata], /) -> None:
     LOGGER.info("Save metadata")
-    STMT = """
-    INSERT INTO station_metadata (
-        region, state, station, code, latitude, longitude, altitude, foundation_date
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+
+    list_station = [d.station for d in data]
+    list_station_metadata = []
+    for d in data:
+        list_station_metadata.extend(d.stations_metadata)
+    data.clear()
+
+    STMT_INSERT_STATION_METADATA = """
+    INSERT INTO station (
+        code, id_code
+    ) VALUES (?, ?);
     """
     with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
-        conn.executemany(STMT, data)
+        conn.executemany(STMT_INSERT_STATION_METADATA, list_station)
+
+    STMT_RAW_LOCATION_DATA = """
+    INSERT INTO station_metadata (
+        id_code, region, state, name, latitude, longitude, altitude, foundation_date, year, filename
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """
+    with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
+        conn.executemany(STMT_RAW_LOCATION_DATA, list_station_metadata)
 
     return
 
@@ -188,8 +285,8 @@ def save_metadata(data: list[StationMetadata], /) -> None:
 def main() -> None:
     setup_database()
     data = get_all_metadata()
-    filter_unique_inplace(data)
-    save_metadata(data)
+    agg = agg_unique_consume(data)
+    save_metadata_consume(agg)
     return
 
 
