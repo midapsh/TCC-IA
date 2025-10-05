@@ -16,7 +16,7 @@ class Configs:
     DATA_CSV_FOLDER: Path = field(
         default_factory=lambda: Path(
             getenv(
-                "DATA_ZIP_FOLDER",
+                "DATA_CSV_FOLDER",
                 "/home/dolores/Documents/matheus-ferreira/TCC-IA/data/csv_files",
             )
         )
@@ -39,6 +39,14 @@ class Configs:
             getenv(
                 "DUCKDB_DATABASE_URI",
                 "/home/dolores/Documents/matheus-ferreira/TCC-IA/data/database.duckdb",
+            )
+        )
+    )
+    DATA_BINARY_FOLDER: Path = field(
+        default_factory=lambda: Path(
+            getenv(
+                "DATA_BINARY_FOLDER",
+                "/home/dolores/Documents/matheus-ferreira/TCC-IA/data/binary_files",
             )
         )
     )
