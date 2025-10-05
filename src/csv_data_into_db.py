@@ -44,8 +44,6 @@ class StationTimeseries(NamedTuple):
     id_code: int
     timestamp: int
     year: int
-    data: str
-    horario: str
     precipitacao_total_horario: float | None
     pressao_atmosferica_ao_nivel_da_estacao_horaria: float | None
     pressao_atmosferica_max_na_hora_ant: float | None
@@ -136,8 +134,6 @@ def process_single_file(mapper: Mapper, /) -> list[StationTimeseries]:
 
                     dict_row["id_code"] = mapper.id_code
                     dict_row["timestamp"] = int(datetime_.timestamp())
-                    dict_row["data"] = datetime_.date().isoformat()
-                    dict_row["horario"] = datetime_.time().isoformat()
                     dict_row["year"] = datetime_.year
 
                     temp = StationTimeseries(**dict_row)
@@ -174,8 +170,6 @@ CREATE TABLE IF NOT EXISTS station_timeserie (
     id_code INTEGER NOT NULL,
     timestamp INTEGER NOT NULL,
     year INTEGER NOT NULL,
-    data TEXT NOT NULL,
-    horario TEXT NOT NULL,
     precipitacao_total_horario REAL,
     pressao_atmosferica_ao_nivel_da_estacao_horaria REAL,
     pressao_atmosferica_max_na_hora_ant REAL,
@@ -214,7 +208,7 @@ def save_data_batch(
     """Save data in batches to avoid memory issues."""
     STMT = """
     INSERT INTO station_timeserie (
-        id_code, timestamp, year, data, horario, precipitacao_total_horario,
+        id_code, timestamp, year, precipitacao_total_horario,
         pressao_atmosferica_ao_nivel_da_estacao_horaria,
         pressao_atmosferica_max_na_hora_ant,
         pressao_atmosferica_min_na_hora_ant, radiacao_global,
@@ -224,7 +218,7 @@ def save_data_batch(
         umidade_relativa_max_na_hora_ant, umidade_relativa_min_na_hora_ant,
         umidade_relativa_do_ar_horaria, vento_direcao_horaria,
         vento_rajada_maxima, vento_velocidade_horaria
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
 
     total = len(list_station_timeseries)
