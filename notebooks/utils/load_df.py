@@ -32,10 +32,8 @@ _COLUMNS = [
 ]
 
 
-def _read_binary_file(file_path: Path, /) -> pd.DataFrame:
+def _read_binary_file(file_path: Path, /, *, with_id_code: bool = True) -> pd.DataFrame:
     """Read one binary file into a pandas DataFrame, extracting id_code from filename."""
-    # Extract id_code from filename pattern: station_data_<id_code>_batch.bin
-    id_code = int(file_path.stem.split("_")[2])
 
     # Read binary data using numpy
     data = np.fromfile(file_path, dtype=_DTYPE)
@@ -46,11 +44,20 @@ def _read_binary_file(file_path: Path, /) -> pd.DataFrame:
     records = np.column_stack([int_data, double_data])
 
     df = pd.DataFrame(records, columns=_COLUMNS)
-    df.insert(0, "id_code", id_code)
+    if with_id_code:
+        # Extract id_code from filename pattern: station_data_<id_code>_batch.bin
+        id_code = int(file_path.stem.split("_")[2])
+        df.insert(0, "id_code", id_code)
     return df
 
 
-def load_df_all(folder: Path, /) -> pd.DataFrame:
+def load_df_all() -> pd.DataFrame:
+    from configs import CONFIGS
+
+    return _load_df_all(CONFIGS.DATA_BINARY_FOLDER)
+
+
+def _load_df_all(folder: Path, /) -> pd.DataFrame:
     """Read all *.bin files in a folder into a single DataFrame using parallel processing."""
     max_workers = max((cpu_count() or 4) - 1, 2)
 
@@ -68,7 +75,13 @@ def load_df_all(folder: Path, /) -> pd.DataFrame:
     return pd.concat(dfs, ignore_index=True)
 
 
-def load_df(folder: Path, id_codes: list[int], /) -> pd.DataFrame:
+def load_df(id_codes: list[int], /) -> pd.DataFrame:
+    from configs import CONFIGS
+
+    return _load_df(CONFIGS.DATA_BINARY_FOLDER, id_codes)
+
+
+def _load_df(folder: Path, id_codes: list[int], /) -> pd.DataFrame:
     """Read only the binary files matching the given id_codes using parallel processing."""
     max_workers = max((cpu_count() or 4) - 1, 2)
 
@@ -78,7 +91,10 @@ def load_df(folder: Path, id_codes: list[int], /) -> pd.DataFrame:
         file_paths.extend(folder.glob(pattern))
 
     if not file_paths:
-        return pd.DataFrame(columns=["id_code"] + _COLUMNS)
+        return pd.DataFrame(columns=_COLUMNS)
+
+    if len(id_codes) == 1:
+        return _read_binary_file(file_paths[0], with_id_code=True)
 
     dfs = []
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
