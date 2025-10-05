@@ -8,7 +8,7 @@
 			"name": "Python: Unimed (Dev)",
 			"type": "debugpy",
 			"request": "launch",
-			"program": "${workspaceFolder}/notebooks/plot_monthly.py",
+			"program": "${workspaceFolder}/notebooks/plot_stations.py",
 			"console": "integratedTerminal",
 			"justMyCode": false,
 			"preLaunchTask": "set-env:dev",
