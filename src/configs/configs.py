@@ -21,6 +21,14 @@ class Configs:
             )
         )
     )
+    DATA_HTML_FOLDER: Path = field(
+        default_factory=lambda: Path(
+            getenv(
+                "DATA_HTML_FOLDER",
+                "/home/dolores/Documents/matheus-ferreira/TCC-IA/html",
+            )
+        )
+    )
     LOG_FOLDER: Path = field(
         default_factory=lambda: Path(
             getenv("LOG_FOLDER", "/home/dolores/Documents/matheus-ferreira/TCC-IA/logs")
