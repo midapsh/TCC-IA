@@ -1,17 +1,18 @@
-import sqlite3
-import csv
-import re
-import logging
+from datetime import datetime
+from multiprocessing import Pool
+from os import cpu_count
 from pathlib import Path
+from typing import NamedTuple, TypedDict
+import logging
+import sqlite3
 
 from configs import CONFIGS
+from utils.slugify import slugify
 
-# =====================
-# LOGGING
-# =====================
+
 logging.basicConfig(
-    filename=CONFIGS.LOG_FOLDER.joinpath("csv_into_db.log"),
-    level=logging.INFO,
+    filename=CONFIGS.LOG_FOLDER.joinpath("csv_stuff.log"),
+    level=logging.DEBUG,
     format=(
         "%(asctime)s.%(msecs)03d [%(levelname)-8s] "
         "[PID:%(process)16d] [TID:%(thread)20d] "
@@ -19,227 +20,275 @@ logging.basicConfig(
     ),
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
-LOGGER = logging.getLogger(__file__)
+LOGGER = logging.getLogger(__name__)
 
 
-# =====================
-# CRIAÇÃO DO BANCO
-# =====================
-def create_db(db_file: Path, /) -> sqlite3.Connection:
-    LOGGER.info("Criando banco de dados em %s", db_file)
-    conn = sqlite3.connect(db_file)
-    cur = conn.cursor()
+class Station(NamedTuple):
+    code: str
+    id_code: int
 
+
+class StationTemp(TypedDict, total=False):
+    code: str
+    id_code: int
+
+
+class StationMetadata(NamedTuple):
+    id_code: int
+    region: str
+    state: str
+    name: str
+    latitude: str
+    longitude: str
+    altitude: str | None
+    foundation_date: str
+    year: str
+    filename: str
+
+
+class StationMetadataTemp(TypedDict, total=False):
+    id_code: int
+    region: str
+    state: str
+    name: str
+    latitude: str
+    longitude: str
+    altitude: str | None
+    foundation_date: str
+    year: str
+    filename: str
+
+
+class FileMetadata(NamedTuple):
+    station: Station
+    station_metadata: StationMetadata
+
+
+def string_to_number(text: str, /) -> int:
+    return int("".join("{}".format(ord(c)) for c in text))
+
+
+# -------------------- PARSE HEADER --------------------
+def _parse_header(file_path: Path, /) -> FileMetadata:
+    station_temp: StationTemp = {}
+    station_metadata_temp: StationMetadataTemp = {}
     try:
-        # Dropar tabelas antigas
-        cur.execute("DROP TABLE IF EXISTS variaveis")
-        cur.execute("DROP TABLE IF EXISTS estacoes")
-        cur.execute("DROP TABLE IF EXISTS medicoes")
+        with file_path.open(mode="r") as f:
+            for _ in range(8):
+                line = f.readline().strip()
+                if ":;" not in line:
+                    continue
 
-        # Tabelas
-        cur.execute(
-            """
-        CREATE TABLE variaveis (
-            coluna TEXT,
-            unidade_de_medida TEXT
-        )
-        """
-        )
-        cur.execute(
-            """
-        CREATE TABLE estacoes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ano INTEGER,
-            nome_do_arquivo TEXT,
-            regiao TEXT,
-            uf TEXT,
-            estacao TEXT,
-            codigo TEXT,
-            latitude REAL,
-            longitude REAL,
-            altitude REAL,
-            data_de_fundacao TEXT
-        )
-        """
-        )
-        cur.execute(
-            """
-        CREATE TABLE medicoes (
-            id_fk INTEGER,
-            data TEXT,
-            hora TEXT,
-            precipitacao_total_horario REAL,
-            pressao_atmosferica_ao_nivel_da_estacao_horaria REAL,
-            pressao_atmosferica_max_na_hora_ant REAL,
-            pressao_atmosferica_min_na_hora_ant REAL,
-            radiacao_global REAL,
-            temperatura_do_ar_bulbo_seco_horaria REAL,
-            temperatura_do_ponto_de_orvalho REAL,
-            temperatura_maxima_na_hora_ant REAL,
-            temperatura_minima_na_hora_ant REAL,
-            temperatura_orvalho_max_na_hora_ant REAL,
-            temperatura_orvalho_min_na_hora_ant REAL,
-            umidade_relativa_max_na_hora_ant REAL,
-            umidade_relativa_min_na_hora_ant REAL,
-            umidade_relativa_do_ar_horaria REAL,
-            vento_direcao_horaria REAL,
-            vento_rajada_maxima REAL,
-            vento_velocidade_horaria REAL,
-            FOREIGN KEY(id_fk) REFERENCES estacoes(id)
-        )
-        """
-        )
+                key, value = line.split(":;", 1)
+                key = slugify(key)
+                value = value.strip()
 
-        # Índices
-        cur.execute("CREATE INDEX idx_medicoes_data ON medicoes(data)")
-        cur.execute("CREATE INDEX idx_medicoes_hora ON medicoes(hora)")
-        cur.execute("CREATE INDEX idx_medicoes_hora_data ON medicoes(hora, data)")
+                if "regiao" in key or "regio" in key:
+                    station_metadata_temp["region"] = value
+                    continue
+                elif "uf" in key:
+                    station_metadata_temp["state"] = value
+                    continue
+                elif "estacao" in key or "estaco" in key:
+                    station_metadata_temp["name"] = value
+                    continue
+                elif "codigo" in key:
+                    id_code = string_to_number(value)
+                    station_temp["code"] = value
+                    station_temp["id_code"] = id_code
+                    station_metadata_temp["id_code"] = id_code
+                    continue
+                elif "latitude" in key:
+                    station_metadata_temp["latitude"] = value.replace(",", ".")
+                    continue
+                elif "longitude" in key:
+                    station_metadata_temp["longitude"] = value.replace(",", ".")
+                    continue
+                elif "altitude" in key:
+                    if value.strip().upper() == "F":
+                        station_metadata_temp["altitude"] = None
+                        continue
+                    else:
+                        station_metadata_temp["altitude"] = value.replace(",", ".")
+                        continue
+                elif "fundacao" in key or "fundaco" in key:
+                    try:
+                        station_metadata_temp["foundation_date"] = (
+                            datetime.strptime(value, "%Y-%m-%d").date().isoformat()
+                        )
+                        continue
+                    except ValueError:
+                        station_metadata_temp["foundation_date"] = (
+                            datetime.strptime(value, "%d/%m/%y").date().isoformat()
+                        )
+                        continue
 
-        cur.execute("CREATE INDEX idx_estacoes_ano ON estacoes(ano)")
-        cur.execute(
-            "CREATE INDEX idx_estacoes_nome_do_arquivo ON estacoes(nome_do_arquivo)"
-        )
-        cur.execute("CREATE INDEX idx_estacoes_regiao ON estacoes(regiao)")
-        cur.execute("CREATE INDEX idx_estacoes_uf ON estacoes(uf)")
-        cur.execute("CREATE INDEX idx_estacoes_estacao ON estacoes(estacao)")
-        cur.execute("CREATE INDEX idx_estacoes_codigo ON estacoes(codigo)")
-        cur.execute("CREATE INDEX idx_estacoes_latitude ON estacoes(latitude)")
-        cur.execute("CREATE INDEX idx_estacoes_longitude ON estacoes(longitude)")
-        cur.execute("CREATE INDEX idx_estacoes_altitude ON estacoes(altitude)")
-        cur.execute(
-            "CREATE INDEX idx_estacoes_data_de_fundacao ON estacoes(data_de_fundacao)"
-        )
+        station = Station(**station_temp)
 
-        conn.commit()
-        LOGGER.info("Banco de dados criado com sucesso.")
+        station_metadata_temp["year"] = file_path.parent.name
+        station_metadata_temp["filename"] = file_path.name
+        station_metadata = StationMetadata(**station_metadata_temp)
+
+        file_metadata = FileMetadata(
+            station=station,
+            station_metadata=station_metadata,
+        )
+        return file_metadata
     except Exception as e:
-        LOGGER.exception("Erro ao criar banco de dados: %s", e)
+        LOGGER.error(
+            "Error parsing file: %s\nError: %s\nStation: %s\nMetadata: %s",
+            file_path,
+            str(e),
+            station_temp,
+            station_metadata_temp,
+        )
         raise
 
-    return conn
+
+# -------------------- LOAD ALL FileMetadata --------------------
+def get_all_metadata() -> list[FileMetadata]:
+    LOGGER.info("Get all metadata")
+    files = [
+        filepath
+        for folder_year in CONFIGS.DATA_CSV_FOLDER.iterdir()
+        if folder_year.is_dir()
+        for filepath in folder_year.glob("*.csv", case_sensitive=False)
+    ]
+
+    total_files = len(files)
+    LOGGER.info("Total files to parse: %d", total_files)
+
+    processes = max((cpu_count() or 4) - 1, 2)
+    with Pool(processes=processes) as pool:
+        data = pool.map(_parse_header, files)
+
+    LOGGER.info("Finished parsing all files")
+    return data
 
 
-# =====================
-# PROCESSAR UM CSV
+class AggFileMetadata(NamedTuple):
+    station: Station
+    stations_metadata: list[StationMetadata]
 
 
-# =====================
-def process_csv_file(csv_file: Path, conn: sqlite3.Connection, /) -> None:
-    LOGGER.info("Processando arquivo %s", csv_file)
-    cur = conn.cursor()
+def agg_unique_consume(data: list[FileMetadata], /) -> list[AggFileMetadata]:
+    LOGGER.info("Starting uniqueness filter. Total stations to map: %d", len(data))
 
-    try:
-        with open(csv_file) as f:
-            reader = csv.reader(f, delimiter=";")
-            rows = list(reader)
+    aggregator: dict[str, AggFileMetadata] = {}
 
-        # Metadados da estação
-        meta = {row[0].replace(":", "").strip(): row[1].strip() for row in rows[:8]}
-        header = rows[8]
-
-        # Extrair ano do nome do arquivo
-        match = re.search(r"_(\d{2})-(\d{2})-(\d{4})_", csv_file.name)
-        ano = int(match.group(3)) if match else None
-
-        # Inserir estação
-        LOGGER.info("Insert estacao")
-        cur.execute(
-            """
-        INSERT INTO estacoes (
-            ano, nome_do_arquivo, regiao, uf, estacao, codigo,
-            latitude, longitude, altitude, data_de_fundacao
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-            (
-                ano,
-                csv_file.name,
-                meta.get("REGIÃO"),
-                meta.get("UF"),
-                meta.get("ESTAÇÃO"),
-                meta.get("CODIGO (WMO)"),
-                float(meta["LATITUDE"].replace(",", ".")),
-                float(meta["LONGITUDE"].replace(",", ".")),
-                float(meta["ALTITUDE"].replace(",", ".")),
-                meta.get("DATA DE FUNDAÇÃO (YYYY-MM-DD)"),
-            ),
-        )
-
-        estacao_id = cur.lastrowid
-
-        # Inserir variáveis
-        LOGGER.info("Insert variaveis")
-        for col in header:
-            if "(" in col:
-                nome, unidade = col.split("(", 1)
-                unidade = unidade.strip(") ")
-            else:
-                nome, unidade = col, None
-            cur.execute(
-                "INSERT INTO variaveis (coluna, unidade_de_medida) VALUES (?, ?)",
-                (nome.strip(), unidade),
+    for file_metadata in data:
+        key = file_metadata.station.code
+        if key not in aggregator:
+            aggregator[key] = AggFileMetadata(
+                station=file_metadata.station,
+                stations_metadata=[file_metadata.station_metadata],
             )
+        else:
+            aggregator[key].stations_metadata.append(file_metadata.station_metadata)
 
-        # Inserir medições
-        LOGGER.info("Insert medicoes")
-        for row in rows[9:]:
-            if not row or len(row) < 2:
-                continue
-            values = [None if v in ("", "-9999") else v.replace(",", ".") for v in row]
+    duplicates_count = len(data) - len(aggregator)
+    if duplicates_count > 0:
+        LOGGER.warning("Removed %d duplicate stations", duplicates_count)
 
-            # fix: garantir só 19 colunas (data + hora + 17 medições)
-            values = values[:19]
+    data.clear()
 
-            cur.execute(
-                """
-            INSERT INTO medicoes VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+    LOGGER.info("Uniqueness filter complete. Unique stations: %d", len(data))
+
+    temp = [agg for agg in aggregator.values()]
+    aggregator.clear()
+    return temp
+
+
+def setup_database() -> None:
+    STMT_STATION = """
+CREATE TABLE station (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL,
+    id_code INTEGER NOT NULL
+)
+    """
+
+    STMT_STATION_METADATA = """
+CREATE TABLE station_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_code INTEGER NOT NULL,
+    region TEXT NOT NULL,
+    state TEXT NOT NULL,
+    name TEXT NOT NULL,
+    year INTEGER NOT NULL,
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    altitude REAL NULL,
+    filename TEXT NOT NULL,
+    foundation_date DATE NOT NULL,
+    FOREIGN KEY (id_code) REFERENCES station(id_code)
+)
+    """
+    with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
+        conn.execute("DROP TABLE IF EXISTS station")
+        conn.execute("DROP TABLE IF EXISTS station_metadata")
+        conn.execute(STMT_STATION)
+        conn.execute(STMT_STATION_METADATA)
+
+        for col in [
+            "code",
+            "id_code",
+        ]:
+            conn.execute(f"CREATE INDEX idx_station_{col} ON station({col})")
+
+        for col in [
+            "id_code",
+            "region",
+            "state",
+            "name",
+            "year",
+            "latitude",
+            "longitude",
+            "altitude",
+            "filename",
+            "foundation_date",
+        ]:
+            conn.execute(
+                f"CREATE INDEX idx_station_metadata_{col} ON station_metadata({col})"
             )
-            """,
-                [estacao_id] + values,
-            )
-
-        conn.commit()
-        LOGGER.info("Arquivo %s importado com sucesso.", csv_file)
-        return
-    except Exception:
-        LOGGER.exception("Erro ao processar arquivo %s", csv_file)
-        return
+    return
 
 
-# =====================
-# PROCESSAR VÁRIOS CSVs
-# =====================
-def process_all_csvs(db_file: Path, /) -> None:
-    conn = create_db(db_file)
+def save_metadata_consume(data: list[AggFileMetadata], /) -> None:
+    LOGGER.info("Save metadata")
 
-    root = CONFIGS.DATA_CSV_FOLDER
-    if not root.exists():
-        LOGGER.error("Pasta de CSVs não encontrada: %s", root)
-        conn.close()
-        return
+    list_station = [d.station for d in data]
+    list_station_metadata = []
+    for d in data:
+        list_station_metadata.extend(d.stations_metadata)
+    data.clear()
 
-    # percorre subpastas (ex.: 2000, 2001, ...)
-    for folder in sorted(p for p in root.iterdir() if p.is_dir()):
-        LOGGER.info("📂 Processing folder: %s", folder)
-        # percorre os arquivos da pasta e filtra por extensão (case-insensitive)
-        for csv_path in sorted(folder.iterdir()):
-            if not csv_path.is_file():
-                continue
-            if csv_path.suffix.lower() != ".csv":
-                LOGGER.debug("Ignorando (não-CSV): %s", csv_path.name)
-                continue
+    STMT_INSERT_STATION_METADATA = """
+    INSERT INTO station (
+        code, id_code
+    ) VALUES (?, ?);
+    """
+    with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
+        conn.executemany(STMT_INSERT_STATION_METADATA, list_station)
 
-            LOGGER.info("   - Encontrado CSV: %s", csv_path.name)
-            process_csv_file(csv_path, conn)
+    STMT_RAW_LOCATION_DATA = """
+    INSERT INTO station_metadata (
+        id_code, region, state, name, latitude, longitude, altitude, foundation_date, year, filename
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    """
+    with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
+        conn.executemany(STMT_RAW_LOCATION_DATA, list_station_metadata)
 
-    conn.close()
-    LOGGER.info("✅ Importação concluída em %s", db_file)
+    return
+
+
+def main() -> None:
+    setup_database()
+    data = get_all_metadata()
+    agg = agg_unique_consume(data)
+    save_metadata_consume(agg)
+    return
 
 
 if __name__ == "__main__":
-    try:
-        LOGGER.info("🚀 Iniciando importação de CSVs em %s", CONFIGS.DATA_CSV_FOLDER)
-        process_all_csvs(CONFIGS.DATABASE_URI)
-    except Exception:
-        LOGGER.exception("💥 Erro durante a importação")
-        raise
+    main()
