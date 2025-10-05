@@ -810,7 +810,7 @@ def main():
 
     # Import load_df
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from utils.load_df import load_df
+    from utils.load_df_old import load_df
 
     # Load data
     print("Loading data...")

@@ -642,7 +642,7 @@ def main():
     # Import data loader
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    from utils.load_df import load_df
+    from utils.load_df_old import load_df
 
     LOGGER.info("Loading data...")
     df = load_df()

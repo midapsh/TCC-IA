@@ -31,7 +31,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from utils.load_df import load_df
+from utils.load_df_old import load_df
 
 
 # IMAGES_FOLDER = Path("/home/dolores/Documents/matheus-ferreira/TCC-IA/images")

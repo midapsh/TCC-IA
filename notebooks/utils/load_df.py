@@ -1,113 +1,95 @@
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from os import cpu_count
 from pathlib import Path
-import sqlite3
 
+import numpy as np
 import pandas as pd
 
-# ======================
-# CONFIG
-# ======================
-DATA_FOLDER = Path("/home/dolores/Documents/matheus-ferreira/TCC-IA/data")
-HTML_FOLDER = Path("/home/dolores/Documents/matheus-ferreira/TCC-IA/html")
-IMAGES_FOLDER = Path("/home/dolores/Documents/matheus-ferreira/TCC-IA/images")
-DATABASE_URI = str(DATA_FOLDER / "database.db")
-# In-memory db
-# DATABASE_URI = "/mnt/ramdisk/database.db"
+
+# Binary layout: 2 ints (int32) + 17 doubles (float64)
+_DTYPE = np.dtype([("int_fields", np.int32, 2), ("double_fields", np.float64, 17)])
+
+_COLUMNS = [
+    "timestamp",
+    "year",
+    "precipitacao_total_horario",
+    "pressao_atmosferica_ao_nivel_da_estacao_horaria",
+    "pressao_atmosferica_max_na_hora_ant",
+    "pressao_atmosferica_min_na_hora_ant",
+    "radiacao_global",
+    "temperatura_do_ar_bulbo_seco_horaria",
+    "temperatura_do_ponto_de_orvalho",
+    "temperatura_maxima_na_hora_ant",
+    "temperatura_minima_na_hora_ant",
+    "temperatura_orvalho_max_na_hora_ant",
+    "temperatura_orvalho_min_na_hora_ant",
+    "umidade_relativa_max_na_hora_ant",
+    "umidade_relativa_min_na_hora_ant",
+    "umidade_relativa_do_ar_horaria",
+    "vento_direcao_horaria",
+    "vento_rajada_maxima",
+    "vento_velocidade_horaria",
+]
 
 
-# ======================
-# SQL QUERY
-# ======================
+def _read_binary_file(file_path: Path, /) -> pd.DataFrame:
+    """Read one binary file into a pandas DataFrame, extracting id_code from filename."""
+    # Extract id_code from filename pattern: station_data_<id_code>_batch.bin
+    id_code = int(file_path.stem.split("_")[2])
 
+    # Read binary data using numpy
+    data = np.fromfile(file_path, dtype=_DTYPE)
 
-def load_df() -> pd.DataFrame:
-    stmt = """
-    SELECT *
-    FROM station_timeserie a
-    where id_code = (
-        SELECT id_code
-        FROM station_metadata
-        WHERE name LIKE "%BAURU%"
-    );
-    """
-    # Columns to load (avoid SELECT * for performance and memory)
-    cols = [
-        "id_code",
-        "timestamp",
-        "precipitacao_total_horario",
-        "pressao_atmosferica_ao_nivel_da_estacao_horaria",
-        "pressao_atmosferica_max_na_hora_ant",
-        "pressao_atmosferica_min_na_hora_ant",
-        "radiacao_global",
-        "temperatura_do_ar_bulbo_seco_horaria",
-        "temperatura_do_ponto_de_orvalho",
-        "temperatura_maxima_na_hora_ant",
-        "temperatura_minima_na_hora_ant",
-        "temperatura_orvalho_max_na_hora_ant",
-        "temperatura_orvalho_min_na_hora_ant",
-        "umidade_relativa_max_na_hora_ant",
-        "umidade_relativa_min_na_hora_ant",
-        "umidade_relativa_do_ar_horaria",
-        "vento_direcao_horaria",
-        "vento_rajada_maxima",
-        "vento_velocidade_horaria",
-    ]
+    # Flatten the structured array into a 2D array
+    int_data = data["int_fields"]
+    double_data = data["double_fields"]
+    records = np.column_stack([int_data, double_data])
 
-    # stmt = f"""
-    # SELECT {", ".join(cols)}
-    # FROM station_timeserie
-    # """
-
-    # Optional: downcast floats to save memory; adjust as needed
-    dtype_map = {
-        "id_code": "int64",
-        "timestamp": "int64",  # parsed separately as datetime; keep as int on read
-        "precipitacao_total_horario": "float32",
-        "pressao_atmosferica_ao_nivel_da_estacao_horaria": "float32",
-        "pressao_atmosferica_max_na_hora_ant": "float32",
-        "pressao_atmosferica_min_na_hora_ant": "float32",
-        "radiacao_global": "float32",
-        "temperatura_do_ar_bulbo_seco_horaria": "float32",
-        "temperatura_do_ponto_de_orvalho": "float32",
-        "temperatura_maxima_na_hora_ant": "float32",
-        "temperatura_minima_na_hora_ant": "float32",
-        "temperatura_orvalho_max_na_hora_ant": "float32",
-        "temperatura_orvalho_min_na_hora_ant": "float32",
-        "umidade_relativa_max_na_hora_ant": "float32",
-        "umidade_relativa_min_na_hora_ant": "float32",
-        "umidade_relativa_do_ar_horaria": "float32",
-        "vento_direcao_horaria": "float32",
-        "vento_rajada_maxima": "float32",
-        "vento_velocidade_horaria": "float32",
-    }
-
-    with sqlite3.connect(DATABASE_URI) as conn:
-        # Optional read-optimized pragmas
-        # try:
-        #     conn.execute("PRAGMA journal_mode=WAL;")
-        #     conn.execute("PRAGMA synchronous = NORMAL;")
-        # except Exception:
-        #     pass
-
-        # Read only selected columns; keep timestamp as integer for precise conversion
-        df = pd.read_sql_query(stmt, conn, dtype=dtype_map)
-
-    # Ensure expected columns exist (defensive)
-    missing = set(cols) - set(df.columns)
-    if missing:
-        raise KeyError(f"Missing expected column(s) in query result: {missing}")
-
-    # Sort by timestamp before conversion (faster on int)
-    df.sort_values("timestamp", inplace=True, kind="mergesort", ignore_index=True)
-
-    # Convert epoch seconds to pandas datetime (UTC assumed; adjust if needed)
-    df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
-
-    # Drop raw timestamp column
-    df.drop(columns=["timestamp"], inplace=True)
-
+    df = pd.DataFrame(records, columns=_COLUMNS)
+    df.insert(0, "id_code", id_code)
     return df
 
 
+def load_df_all(folder: Path, /) -> pd.DataFrame:
+    """Read all *.bin files in a folder into a single DataFrame using parallel processing."""
+    max_workers = max((cpu_count() or 4) - 1, 2)
+
+    file_paths = list(folder.glob("*.bin"))
+
+    if not file_paths:
+        return pd.DataFrame(columns=["id_code"] + _COLUMNS)
+
+    dfs = []
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_read_binary_file, p): p for p in file_paths}
+        for future in as_completed(futures):
+            dfs.append(future.result())
+
+    return pd.concat(dfs, ignore_index=True)
+
+
+def load_df(folder: Path, id_codes: list[int], /) -> pd.DataFrame:
+    """Read only the binary files matching the given id_codes using parallel processing."""
+    max_workers = max((cpu_count() or 4) - 1, 2)
+
+    file_paths = []
+    for code in id_codes:
+        pattern = f"station_data_{code}_batch.bin"
+        file_paths.extend(folder.glob(pattern))
+
+    if not file_paths:
+        return pd.DataFrame(columns=["id_code"] + _COLUMNS)
+
+    dfs = []
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_read_binary_file, p): p for p in file_paths}
+        for future in as_completed(futures):
+            dfs.append(future.result())
+
+    return pd.concat(dfs, ignore_index=True)
+
+
 __all__ = [
+    "load_df_all",
     "load_df",
 ]
