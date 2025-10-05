@@ -148,17 +148,29 @@ def save_data_batch(
         vento_velocidade_horaria
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
-
+    TEN_GBS = 1024 * 1024 * 10
     with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
+        # Performance-oriented pragmas (tune as needed)
+        # WAL tends to speed up writes, and NORMAL is a good balance of safety/speed.
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        # Optional (tune or remove):
+        # Use memory for temp structures and enlarge cache.
+        conn.execute("PRAGMA temp_store = MEMORY;")
+        # Set cache size in KiB when negative. Example: 256 MiB.
+        conn.execute(f"PRAGMA cache_size = -{TEN_GBS}")
+
+        # One transaction for the entire load
+        conn.execute("BEGIN IMMEDIATE;")
         for i in range(0, len(list_station_timeseries), batch_size):
             batch = list_station_timeseries[i : i + batch_size]
             conn.executemany(STMT, batch)
-            conn.commit()
             LOGGER.info(
                 "Saved batch (%d/%d records)",
                 i + len(batch),
                 len(list_station_timeseries),
             )
+        conn.commit()
 
 
 def extract_and_save_in_batches(files: list[Mapper], /):
