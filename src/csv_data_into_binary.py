@@ -34,28 +34,28 @@ class StationTimeseries(NamedTuple):
     id_code: int
     timestamp: int
     year: int
-    precipitacao_total_horario: float | None
-    pressao_atmosferica_ao_nivel_da_estacao_horaria: float | None
-    pressao_atmosferica_max_na_hora_ant: float | None
-    pressao_atmosferica_min_na_hora_ant: float | None
-    radiacao_global: float | None
-    temperatura_do_ar_bulbo_seco_horaria: float | None
-    temperatura_do_ponto_de_orvalho: float | None
-    temperatura_maxima_na_hora_ant: float | None
-    temperatura_minima_na_hora_ant: float | None
-    temperatura_orvalho_max_na_hora_ant: float | None
-    temperatura_orvalho_min_na_hora_ant: float | None
-    umidade_relativa_max_na_hora_ant: float | None
-    umidade_relativa_min_na_hora_ant: float | None
-    umidade_relativa_do_ar_horaria: float | None
-    vento_direcao_horaria: float | None
-    vento_rajada_maxima: float | None
-    vento_velocidade_horaria: float | None
+    precipitacao_total_horario: float  # can be nan
+    pressao_atmosferica_ao_nivel_da_estacao_horaria: float  # can be nan
+    pressao_atmosferica_max_na_hora_ant: float  # can be nan
+    pressao_atmosferica_min_na_hora_ant: float  # can be nan
+    radiacao_global: float  # can be nan
+    temperatura_do_ar_bulbo_seco_horaria: float  # can be nan
+    temperatura_do_ponto_de_orvalho: float  # can be nan
+    temperatura_maxima_na_hora_ant: float  # can be nan
+    temperatura_minima_na_hora_ant: float  # can be nan
+    temperatura_orvalho_max_na_hora_ant: float  # can be nan
+    temperatura_orvalho_min_na_hora_ant: float  # can be nan
+    umidade_relativa_max_na_hora_ant: float  # can be nan
+    umidade_relativa_min_na_hora_ant: float  # can be nan
+    umidade_relativa_do_ar_horaria: float  # can be nan
+    vento_direcao_horaria: float  # can be nan
+    vento_rajada_maxima: float  # can be nan
+    vento_velocidade_horaria: float  # can be nan
 
 
-# Binary format: 3 integers (i) + 17 doubles (d)
-# Total: 3*4 + 17*8 = 148 bytes per record
-BINARY_FORMAT = "iii" + "d" * 17
+# Binary format: 2 integers (i) + 17 doubles (d)
+# Total: 2*4 + 17*8 = 144 bytes per record
+BINARY_FORMAT = "ii" + "d" * 17
 RECORD_SIZE = struct.calcsize(BINARY_FORMAT)
 
 
@@ -67,12 +67,12 @@ def get_all_files() -> list[Mapper]:
     return [Mapper(r[0], CONFIGS.DATA_CSV_FOLDER / str(r[1]) / r[2]) for r in rows]
 
 
-def safe_float(value: str, /) -> float | None:
+def safe_float(value: str, /) -> float:
     cleaned = value.strip().replace(",", ".")
     if not cleaned:
-        return None
+        return float("nan")
     f = float(cleaned)
-    return None if f in (-9999, -9999.0) else f
+    return float("nan") if f in (-9999, -9999.0) else f
 
 
 def standard_format(datetime_hour: str, /, *, format_="%Y/%m/%d%H%M") -> datetime:
@@ -130,13 +130,27 @@ def process_single_file(mapper: Mapper, /) -> list[StationTimeseries]:
     return data
 
 
-def save_data_batch(list_station_timeseries: list[StationTimeseries], /):
-    """Save data to binary files, splitting by year and batch."""
-    # Create output directory
+def save_single_id_code_data(
+    args: tuple[int, list[StationTimeseries]], /
+) -> tuple[int, int]:
+    """Save data for a single id_code to a binary file."""
+    id_code, records = args
     output_dir = CONFIGS.DATA_BINARY_FOLDER
     output_dir.mkdir(exist_ok=True)
 
-    # Group data by id_code
+    binary_file = output_dir / f"station_data_{id_code}_batch.bin"
+
+    with open(binary_file, "ab") as f:
+        for record in records:
+            binary_data = struct.pack(BINARY_FORMAT, *record[1:])
+            f.write(binary_data)
+
+    LOGGER.info("Saved %d records to %s", len(records), binary_file.name)
+    return id_code, len(records)
+
+
+def save_data_batch(list_station_timeseries: list[StationTimeseries], /):
+    """Save data to binary files using multiprocessing, splitting by id_code."""
     data_by_id_code: dict[int, list[StationTimeseries]] = {}
     for record in list_station_timeseries:
         id_code = record.id_code
@@ -144,28 +158,22 @@ def save_data_batch(list_station_timeseries: list[StationTimeseries], /):
             data_by_id_code[id_code] = []
         data_by_id_code[id_code].append(record)
 
-    # Save each id_code's data to separate binary files
-    for id_code, records in data_by_id_code.items():
-        binary_file = output_dir / f"station_data_{id_code}_batch.bin"
+    save_args = list(data_by_id_code.items())
 
-        with open(binary_file, "ab") as f:
-            for record in records:
-                # Convert None to NaN for float fields
-                values = [
-                    record.id_code,
-                    record.timestamp,
-                    record.year,
-                ]
-                # Add float fields, converting None to NaN
-                for i in range(3, 20):
-                    val = record[i]
-                    values.append(float("nan") if val is None else val)
+    processes = max((cpu_count() or 4) - 1, 2)
+    LOGGER.info(
+        "Saving data for %d id_codes using %d processes",
+        len(save_args),
+        processes,
+    )
 
-                # Pack and write binary data
-                binary_data = struct.pack(BINARY_FORMAT, *values)
-                f.write(binary_data)
+    with Pool(processes=processes) as pool:
+        results = pool.map(save_single_id_code_data, save_args)
 
-        LOGGER.info("Saved %d records to %s", len(records), binary_file.name)
+    total_records = sum(count for _, count in results)
+    LOGGER.info(
+        "Saved total of %d records across %d files", total_records, len(results)
+    )
 
 
 def extract_and_save_in_batches(files: list[Mapper], /):
@@ -202,29 +210,29 @@ def create_metadata_file():
     output_dir.mkdir(exist_ok=True)
 
     metadata = f"""Binary Data Format Specification
-================================
+====
 
 Record Size: {RECORD_SIZE} bytes
 Format String: {BINARY_FORMAT}
 
 Field Layout:
--------------
+----
 Offset | Type    | Size | Field Name
--------|---------|------|------------------------------------------
-0      | int32   | 4    | id_code
-4      | int32   | 4    | timestamp
-8      | int32   | 4    | year
-12     | float64 | 8    | precipitacao_total_horario
-20     | float64 | 8    | pressao_atmosferica_ao_nivel_da_estacao_horaria
-28     | float64 | 8    | pressao_atmosferica_max_na_hora_ant
-36     | float64 | 8    | pressao_atmosferica_min_na_hora_ant
-44     | float64 | 8    | radiacao_global
-52     | float64 | 8    | temperatura_do_ar_bulbo_seco_horaria
-60     | float64 | 8    | temperatura_do_ponto_de_orvalho
-68     | float64 | 8    | temperatura_maxima_na_hora_ant
-76     | float64 | 8    | temperatura_minima_na_hora_ant
-84     | float64 | 8    | temperatura_orvalho_max_na_hora_ant
-92     | float64 | 8    | temperatura_orvalho_min_na_hora_ant
+----|----|----|----
+0    | int32   | 4    | id_code
+4    | int32   | 4    | timestamp
+8    | int32   | 4    | year
+12    | float64 | 8    | precipitacao_total_horario
+20    | float64 | 8    | pressao_atmosferica_ao_nivel_da_estacao_horaria
+28    | float64 | 8    | pressao_atmosferica_max_na_hora_ant
+36    | float64 | 8    | pressao_atmosferica_min_na_hora_ant
+44    | float64 | 8    | radiacao_global
+52    | float64 | 8    | temperatura_do_ar_bulbo_seco_horaria
+60    | float64 | 8    | temperatura_do_ponto_de_orvalho
+68    | float64 | 8    | temperatura_maxima_na_hora_ant
+76    | float64 | 8    | temperatura_minima_na_hora_ant
+84    | float64 | 8    | temperatura_orvalho_max_na_hora_ant
+92    | float64 | 8    | temperatura_orvalho_min_na_hora_ant
 100    | float64 | 8    | umidade_relativa_max_na_hora_ant
 108    | float64 | 8    | umidade_relativa_min_na_hora_ant
 116    | float64 | 8    | umidade_relativa_do_ar_horaria
@@ -233,14 +241,14 @@ Offset | Type    | Size | Field Name
 140    | float64 | 8    | vento_velocidade_horaria
 
 Notes:
-------
+----
 - All integers are 32-bit signed (little-endian)
 - All floats are 64-bit IEEE 754 doubles (little-endian)
 - NULL values are represented as NaN for float fields
 - Files are named: station_data_<YEAR>_batch_<BATCH_NUMBER>.bin
 
 Reading Example (Python):
--------------------------
+----
 import struct
 
 BINARY_FORMAT = "{BINARY_FORMAT}"
