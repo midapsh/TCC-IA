@@ -1,4 +1,6 @@
 from datetime import datetime
+from multiprocessing import Pool
+from os import cpu_count
 from pathlib import Path
 from typing import Any, NamedTuple
 import csv
@@ -9,11 +11,11 @@ from configs import CONFIGS
 
 
 logging.basicConfig(
-    filename=CONFIGS.LOG_FOLDER.joinpath("csv_stuff.log"),
+    filename=CONFIGS.LOG_FOLDER.joinpath("csv_data_into_db.log"),
     level=logging.DEBUG,
     format=(
         "%(asctime)s.%(msecs)03d [%(levelname)-8s] "
-        "[PID:%(process)16d] [TID:%(thread)20d] "
+        "[PID:%(process)6d] [TID:%(thread)6d] "
         "%(module)s-%(lineno)d-%(name)s: %(message)s"
     ),
     datefmt="%Y-%m-%dT%H:%M:%S",
@@ -28,7 +30,6 @@ class Mapper(NamedTuple):
 
 def get_all_files() -> list[Mapper]:
     STMT = "SELECT id_code, year, filename FROM station_metadata;"
-    data = None
     with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
         cursor = conn.execute(STMT)
         rows = cursor.fetchall()
@@ -36,7 +37,7 @@ def get_all_files() -> list[Mapper]:
             Mapper(row[0], CONFIGS.DATA_CSV_FOLDER / str(row[1]) / row[2])
             for row in rows
         ]
-        return data
+    return data
 
 
 class StationTimeseries(NamedTuple):
@@ -64,6 +65,18 @@ class StationTimeseries(NamedTuple):
     vento_velocidade_horaria: float | None
 
 
+def safe_float(value: str, /) -> float | None:
+    """Convert string to float, handling empty values, commas, and -9999 sentinel values."""
+    cleaned = value.strip().replace(",", ".")
+    if not cleaned:
+        return None
+
+    float_val = float(cleaned)
+    if float_val == -9999 or float_val == -9999.0:
+        return None
+    return float_val
+
+
 def standard_format(datetime_hour: str, /, *, format_="%Y/%m/%d%H%M") -> datetime:
     datetime_hour = datetime_hour.replace("-", "/")
     datetime_hour = str(datetime_hour).replace("UTC", "").strip()
@@ -72,7 +85,8 @@ def standard_format(datetime_hour: str, /, *, format_="%Y/%m/%d%H%M") -> datetim
     return datetime.strptime(datetime_hour, format_)
 
 
-def extract_data(list_mapper: list[Mapper], /) -> list[StationTimeseries]:
+def process_single_file(mapper: Mapper, /) -> list[StationTimeseries]:
+    """Process a single CSV file and return timeseries data."""
     csv_columns = [
         "data",
         "horario",
@@ -94,33 +108,68 @@ def extract_data(list_mapper: list[Mapper], /) -> list[StationTimeseries]:
         "vento_rajada_maxima",
         "vento_velocidade_horaria",
     ]
+
+    csv_float_columns = csv_columns[2:]
+
     data: list[StationTimeseries] = []
-    for mapper in list_mapper:
+
+    try:
         with mapper.filepath.open(mode="r") as f:
-            # Skip metadata
-            for _ in range(8):
+            # Skip metadata (+8 lines) + header (+1 line)
+            for _ in range(9):
                 _ = f.readline()
-            # Skip header
-            _ = f.readline()
 
             reader = csv.reader(f, delimiter=";")
             for row in reader:
-                dict_row: dict[str, Any] = dict(zip(csv_columns, row))
-                datetime_ = standard_format(dict_row["data"] + dict_row["horario"])
+                if not row:
+                    continue
+                if len(row) < len(csv_columns):
+                    raise ValueError(f"Bad size: {row}")
 
-                dict_row["id_code"] = mapper.id_code
-                dict_row["timestamp"] = int(datetime_.timestamp())
-                dict_row["data"] = datetime_.date().isoformat()
-                dict_row["horario"] = datetime_.time().isoformat()
-                dict_row["year"] = datetime_.year
-                temp = StationTimeseries(**dict_row)
-                data.append(temp)
+                dict_row: dict[str, Any] = dict(zip(csv_columns, row))
+
+                try:
+                    datetime_ = standard_format(dict_row["data"] + dict_row["horario"])
+
+                    for col in csv_float_columns:
+                        dict_row[col] = safe_float(dict_row[col])
+
+                    dict_row["id_code"] = mapper.id_code
+                    dict_row["timestamp"] = int(datetime_.timestamp())
+                    dict_row["data"] = datetime_.date().isoformat()
+                    dict_row["horario"] = datetime_.time().isoformat()
+                    dict_row["year"] = datetime_.year
+
+                    temp = StationTimeseries(**dict_row)
+                    data.append(temp)
+                    continue
+                except Exception:
+                    LOGGER.error("Error processing row: '%s'", row, exc_info=True)
+                    raise
+
+    except Exception:
+        LOGGER.error("Error processing file: '%s'", mapper.filepath, exc_info=True)
+        raise
+
+    return data
+
+
+def extract_data_parallel(list_mapper: list[Mapper], /) -> list[StationTimeseries]:
+    """Extract data from multiple files using multiprocessing."""
+    processes = max((cpu_count() or 4) - 1, 2)
+    LOGGER.info("Processing %d files with %d processes", len(list_mapper), processes)
+
+    with Pool(processes=processes) as pool:
+        results = pool.map(process_single_file, list_mapper)
+
+    data = [item for sublist in results for item in sublist]
+    LOGGER.info("Extracted %d total records", len(data))
     return data
 
 
 def setup_table():
     STMT_STATION_TIMESERIE = """
-CREATE TABLE station_timeserie (
+CREATE TABLE IF NOT EXISTS station_timeserie (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     id_code INTEGER NOT NULL,
     timestamp INTEGER NOT NULL,
@@ -151,37 +200,55 @@ CREATE TABLE station_timeserie (
         conn.execute("DROP TABLE IF EXISTS station_timeserie")
         conn.execute(STMT_STATION_TIMESERIE)
 
-        for col in [
-            "id_code",
-            "timestamp",
-            "year",
-        ]:
+        for col in ["id_code", "timestamp", "year"]:
             conn.execute(f"DROP INDEX IF EXISTS idx_station_timeserie_{col}")
             conn.execute(
                 f"CREATE INDEX idx_station_timeserie_{col} ON station_timeserie({col})"
             )
-        return
+    LOGGER.info("Table setup complete")
 
 
-def save_data(list_station_timeseries: list[StationTimeseries], /) -> None:
-    STMT_RAW_LOCATION_DATA = """
+def save_data_batch(
+    list_station_timeseries: list[StationTimeseries], /, *, batch_size: int = 10_000
+) -> None:
+    """Save data in batches to avoid memory issues."""
+    STMT = """
     INSERT INTO station_timeserie (
-        id_code, timestamp, year, data, horario, precipitacao_total_horario, pressao_atmosferica_ao_nivel_da_estacao_horaria, pressao_atmosferica_max_na_hora_ant, pressao_atmosferica_min_na_hora_ant, radiacao_global, temperatura_do_ar_bulbo_seco_horaria, temperatura_do_ponto_de_orvalho, temperatura_maxima_na_hora_ant, temperatura_minima_na_hora_ant, temperatura_orvalho_max_na_hora_ant, temperatura_orvalho_min_na_hora_ant, umidade_relativa_max_na_hora_ant, umidade_relativa_min_na_hora_ant, umidade_relativa_do_ar_horaria, vento_direcao_horaria, vento_rajada_maxima, vento_velocidade_horaria
+        id_code, timestamp, year, data, horario, precipitacao_total_horario,
+        pressao_atmosferica_ao_nivel_da_estacao_horaria,
+        pressao_atmosferica_max_na_hora_ant,
+        pressao_atmosferica_min_na_hora_ant, radiacao_global,
+        temperatura_do_ar_bulbo_seco_horaria, temperatura_do_ponto_de_orvalho,
+        temperatura_maxima_na_hora_ant, temperatura_minima_na_hora_ant,
+        temperatura_orvalho_max_na_hora_ant, temperatura_orvalho_min_na_hora_ant,
+        umidade_relativa_max_na_hora_ant, umidade_relativa_min_na_hora_ant,
+        umidade_relativa_do_ar_horaria, vento_direcao_horaria,
+        vento_rajada_maxima, vento_velocidade_horaria
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
-    with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
-        conn.executemany(STMT_RAW_LOCATION_DATA, list_station_timeseries)
 
-    return
+    total = len(list_station_timeseries)
+    LOGGER.info("Saving %d records in batches of %d", total, batch_size)
+
+    with sqlite3.connect(CONFIGS.DATABASE_URI) as conn:
+        for i in range(0, total, batch_size):
+            batch = list_station_timeseries[i : i + batch_size]
+            conn.executemany(STMT, batch)
+            conn.commit()
+            LOGGER.info(
+                "Saved batch %d (%d/%d records)",
+                (i // batch_size + 1),
+                (i + len(batch)),
+                (total),
+            )
 
 
 def main() -> None:
     setup_table()
     stuff = get_all_files()
-    list_station_timeseries = extract_data(stuff)
-    save_data(list_station_timeseries)
-
-    return
+    list_station_timeseries = extract_data_parallel(stuff)
+    save_data_batch(list_station_timeseries)
+    LOGGER.info("Processing complete")
 
 
 if __name__ == "__main__":
