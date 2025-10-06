@@ -32,3 +32,5 @@ torch
 pyro-ppl
 gpytorch
 sbi
+# Hyperparameter fitting
+optuna
