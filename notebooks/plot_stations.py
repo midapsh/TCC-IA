@@ -74,34 +74,6 @@ def graphs(df: pd.DataFrame, /) -> None:
 
     _ = fig.write_html(folder_maps / "weather-stations-in-brazil.html")
 
-    # Also create a simple scatter plot as alternative
-    fig2 = go.Figure()
-
-    _ = fig2.add_trace(
-        go.Scatter(
-            x=df["longitude"],
-            y=df["latitude"],
-            mode="markers",
-            marker=dict(size=5, color="blue", opacity=0.6),
-            text=df["name"],
-            hovertemplate="<b>%{text}</b><br>Lat: %{y:.4f}<br>Lon: %{x:.4f}<extra></extra>",
-        )
-    )
-
-    _ = fig2.update_layout(
-        title="Weather Stations in Brazil (Simple Plot)",
-        xaxis_title="Longitude",
-        yaxis_title="Latitude",
-        height=700,
-        hovermode="closest",
-        plot_bgcolor="lightgray",
-    )
-
-    _ = fig2.update_xaxes(showgrid=True, gridwidth=1, gridcolor="white")
-    _ = fig2.update_yaxes(showgrid=True, gridwidth=1, gridcolor="white")
-
-    _ = fig2.write_html(folder_maps / "weather-stations-in-brazil_simple-plot.html")
-
 
 def main() -> None:
     df = load_metadata()

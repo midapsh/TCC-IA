@@ -1,10 +1,10 @@
 from typing import NamedTuple, List, Dict, Any
+
+from sklearn.metrics import mean_squared_error
 import numpy as np
+import optuna
 import pandas as pd
 import xgboost as xgb
-import optuna
-from sklearn.metrics import mean_squared_error
-from datetime import datetime, timedelta
 
 
 class Split(NamedTuple):
